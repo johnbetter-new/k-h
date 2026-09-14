@@ -1,23 +1,53 @@
 {
   "name": "kiau-hoosh-bot",
-  "version": "3.0.0",
-  "private": true,
-  "description": "KIAU Hoosh Telegram course/group-link bot for Railway",
-  "type": "module",
-  "engines": {
-    "node": ">=20"
-  },
+  "version": "1.0.0",
+  "description": "Production-ready Telegram Bot for Islamic Azad University (KIAU) Course Links Management",
+  "main": "dist/src/index.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
-    "db:migrate": "node scripts/migrate.js",
-    "test": "node tests/run.js",
-    "test:contract": "node tests/platform_contract.js"
+    "build": "tsc",
+    "start": "node dist/src/index.js",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint 'src/**/*.ts' 'tests/**/*.ts'",
+    "format": "prettier --write 'src/**/*.ts' 'tests/**/*.ts'",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:dev-migrate": "prisma migrate dev",
+    "postinstall": "prisma generate"
   },
+  "keywords": [
+    "telegram-bot",
+    "grammy",
+    "kiau",
+    "azad-university",
+    "typescript",
+    "railway"
+  ],
+  "author": "AmirMahdi MontazeriSaniji",
+  "license": "MIT",
   "dependencies": {
-    "express": "^5.2.1",
-    "grammy": "^1.46.0",
-    "pg": "^8.23.0"
+    "@prisma/client": "^6.4.1",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "fastest-levenshtein": "^1.0.16",
+    "grammy": "^1.35.0",
+    "zod": "^3.24.2"
   },
-  "license": "MIT"
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^20.17.19",
+    "@typescript-eslint/eslint-plugin": "^8.24.0",
+    "@typescript-eslint/parser": "^8.24.0",
+    "eslint": "^9.20.1",
+    "prettier": "^3.5.0",
+    "prisma": "^6.4.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.7"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
 }

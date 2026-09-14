@@ -1,0 +1,94 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  USER
+  SUPERVISOR
+  ADMIN
+}
+
+enum SuggestionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id               BigInt       @id
+  username         String?
+  firstName        String
+  lastName         String?
+  role             Role         @default(USER)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  
+  createdCourses   Course[]     @relation("CourseCreator")
+  suggestions      Suggestion[] @relation("UserSuggestions")
+  reviewedSuggestions Suggestion[] @relation("SupervisorReviews")
+  botSessions      BotSession[]
+
+  @@map("users")
+}
+
+model Course {
+  id                   String   @id @default(uuid())
+  title                String
+  normalizedTitle      String
+  instructor           String
+  normalizedInstructor String
+  semester             String
+  normalizedSemester   String
+  link                 String
+  description          String?
+  createdById          BigInt
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  createdBy            User     @relation("CourseCreator", fields: [createdById], references: [id])
+
+  @@index([normalizedTitle])
+  @@index([normalizedInstructor])
+  @@index([normalizedSemester])
+  @@map("courses")
+}
+
+model Suggestion {
+  id                   String           @id @default(uuid())
+  title                String
+  normalizedTitle      String
+  instructor           String
+  normalizedInstructor String
+  semester             String
+  normalizedSemester   String
+  link                 String
+  description          String?
+  status               SuggestionStatus @default(PENDING)
+  rejectionReason      String?
+  submittedById        BigInt
+  reviewedById         BigInt?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  submittedBy          User             @relation("UserSuggestions", fields: [submittedById], references: [id])
+  reviewedBy           User?            @relation("SupervisorReviews", fields: [reviewedById], references: [id])
+
+  @@index([status])
+  @@map("suggestions")
+}
+
+model BotSession {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+
+  userId    BigInt?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("bot_sessions")
+}
