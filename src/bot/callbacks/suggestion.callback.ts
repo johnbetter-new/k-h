@@ -5,6 +5,15 @@ import { isSupervisorOrAdmin } from '../../auth/roles.js';
 
 export const suggestionCallbackComposer = new Composer<CustomContext>();
 
+suggestionCallbackComposer.callbackQuery(/^suggest:select:(.+)$/, async (ctx): Promise<void> => {
+  if (ctx.session.step !== 'SUGGEST_COURSE_SELECT' || !ctx.session.pendingSuggestion) { await ctx.answerCallbackQuery({text:'جلسه منقضی شده.',show_alert:true}); return; }
+  const c = await (await import('../../services/course.service.js')).CourseService.getCourse(ctx.match[1]!);
+  if (!c) { await ctx.answerCallbackQuery({text:'درس پیدا نشد.',show_alert:true}); return; }
+  ctx.session.pendingSuggestion.courseId=c.id; ctx.session.step='SUGGEST_INSTRUCTOR';
+  await ctx.editMessageText(`✅ درس انتخاب شد: ${c.title}\n\n👨‍🏫 نام استاد را وارد کنید:`); await ctx.answerCallbackQuery();
+});
+suggestionCallbackComposer.callbackQuery('suggest:new', async (ctx): Promise<void> => { ctx.session.pendingSuggestion={...ctx.session.pendingSuggestion,courseId:undefined}; ctx.session.step='SUGGEST_INSTRUCTOR'; await ctx.editMessageText('➕ درس جدید انتخاب شد.\n\n👨‍🏫 نام استاد را وارد کنید:'); await ctx.answerCallbackQuery(); });
+
 suggestionCallbackComposer.callbackQuery(/^approve_suggestion:(.+)$/, async (ctx): Promise<void> => {
   if (!isSupervisorOrAdmin(ctx.userRole)) {
     await ctx.answerCallbackQuery({ text: '⛔ عدم دسترسی کافی', show_alert: true });

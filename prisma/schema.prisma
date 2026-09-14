@@ -1,100 +1,108 @@
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-generator client {
-  provider = "prisma-client-js"
-}
-
-enum Role {
-  USER
-  SUPERVISOR
-  ADMIN
-}
-
-enum SuggestionStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
-
+datasource db { provider = "postgresql" url = env("DATABASE_URL") }
+generator client { provider = "prisma-client-js" }
+enum Role { USER SUPERVISOR ADMIN }
+enum SuggestionStatus { PENDING APPROVED REJECTED }
 model User {
-  id               BigInt       @id
-  username         String?
-  firstName        String
-  lastName         String?
-  role             Role         @default(USER)
-  isBanned         Boolean      @default(false)
-  bannedUntil      DateTime?
-  banReason        String?
-  isRestricted     Boolean      @default(false)
-  restrictedUntil  DateTime?
+  id BigInt @id
+  username String?
+  firstName String
+  lastName String?
+  role Role @default(USER)
+  isBanned Boolean @default(false)
+  bannedUntil DateTime?
+  banReason String?
+  isRestricted Boolean @default(false)
+  restrictedUntil DateTime?
   restrictionReason String?
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
-  
-  createdCourses   Course[]     @relation("CourseCreator")
-  suggestions      Suggestion[] @relation("UserSuggestions")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdCourses Course[] @relation("CourseCreator")
+  resources CourseResource[] @relation("ResourceSubmitter")
+  suggestions Suggestion[] @relation("UserSuggestions")
   reviewedSuggestions Suggestion[] @relation("SupervisorReviews")
-  botSessions      BotSession[]
-
-  @@map("users")
+  botSessions BotSession[]
 }
-
 model Course {
-  id                   String   @id @default(uuid())
-  title                String
-  normalizedTitle      String
-  instructor           String
-  normalizedInstructor String
-  semester             String
-  normalizedSemester   String
-  link                 String
-  description          String?
-  createdById          BigInt
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-
-  createdBy            User     @relation("CourseCreator", fields: [createdById], references: [id])
-
+  id String @id @default(uuid())
+  title String
+  normalizedTitle String
+  code String?
+  normalizedCode String?
+  description String?
+  isActive Boolean @default(true)
+  createdById BigInt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User @relation("CourseCreator", fields: [createdById], references: [id])
+  aliases CourseAlias[]
+  resources CourseResource[]
+  suggestions Suggestion[]
   @@index([normalizedTitle])
-  @@index([normalizedInstructor])
-  @@index([normalizedSemester])
+  @@index([normalizedCode])
+  @@index([isActive])
   @@map("courses")
 }
-
+model CourseAlias {
+  id String @id @default(uuid())
+  courseId String
+  alias String
+  normalizedAlias String
+  createdAt DateTime @default(now())
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  @@unique([courseId, normalizedAlias])
+  @@index([normalizedAlias])
+  @@map("course_aliases")
+}
+model CourseResource {
+  id String @id @default(uuid())
+  courseId String
+  title String?
+  link String
+  instructor String?
+  normalizedInstructor String?
+  semester String?
+  normalizedSemester String?
+  description String?
+  submittedById BigInt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  submittedBy User @relation("ResourceSubmitter", fields: [submittedById], references: [id])
+  @@index([courseId])
+  @@index([normalizedInstructor])
+  @@index([normalizedSemester])
+  @@map("course_resources")
+}
 model Suggestion {
-  id                   String           @id @default(uuid())
-  title                String
-  normalizedTitle      String
-  instructor           String
+  id String @id @default(uuid())
+  courseId String?
+  title String
+  normalizedTitle String
+  instructor String
   normalizedInstructor String
-  semester             String
-  normalizedSemester   String
-  link                 String
-  description          String?
-  status               SuggestionStatus @default(PENDING)
-  rejectionReason      String?
-  submittedById        BigInt
-  reviewedById         BigInt?
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
-
-  submittedBy          User             @relation("UserSuggestions", fields: [submittedById], references: [id])
-  reviewedBy           User?            @relation("SupervisorReviews", fields: [reviewedById], references: [id])
-
+  semester String
+  normalizedSemester String
+  link String
+  description String?
+  status SuggestionStatus @default(PENDING)
+  rejectionReason String?
+  submittedById BigInt
+  reviewedById BigInt?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  course Course? @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  submittedBy User @relation("UserSuggestions", fields: [submittedById], references: [id])
+  reviewedBy User? @relation("SupervisorReviews", fields: [reviewedById], references: [id])
+  @@index([courseId])
   @@index([status])
+  @@index([normalizedTitle])
   @@map("suggestions")
 }
-
 model BotSession {
-  key       String   @id
-  value     String   @db.Text
+  key String @id
+  value String @db.Text
   updatedAt DateTime @updatedAt
-
-  userId    BigInt?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  userId BigInt?
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@map("bot_sessions")
 }
