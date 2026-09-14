@@ -28,7 +28,7 @@
   "author": "AmirMahdi MontazeriSaniji",
   "license": "MIT",
   "dependencies": {
-    "@prisma/client": "^6.4.1",
+    "@prisma/client": "6.19.3",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "fastest-levenshtein": "^1.0.16",
@@ -42,7 +42,7 @@
     "@typescript-eslint/parser": "^8.24.0",
     "eslint": "^9.20.1",
     "prettier": "^3.5.0",
-    "prisma": "^6.4.1",
+    "prisma": "6.19.3",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^3.0.7"
