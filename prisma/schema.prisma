@@ -38,6 +38,8 @@ model User {
   suggestions Suggestion[] @relation("UserSuggestions")
   reviewedSuggestions Suggestion[] @relation("SupervisorReviews")
   botSessions BotSession[]
+
+  @@map("users")
 }
 
 model Course {
