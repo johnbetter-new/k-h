@@ -5,9 +5,10 @@ import { isSupervisorOrAdmin } from '../../auth/roles.js';
 
 export const suggestionCallbackComposer = new Composer<CustomContext>();
 
-suggestionCallbackComposer.callbackQuery(/^approve_suggestion:(.+)$/, async (ctx) => {
+suggestionCallbackComposer.callbackQuery(/^approve_suggestion:(.+)$/, async (ctx): Promise<void> => {
   if (!isSupervisorOrAdmin(ctx.userRole)) {
-    return ctx.answerCallbackQuery({ text: '⛔ عدم دسترسی کافی', show_alert: true });
+    await ctx.answerCallbackQuery({ text: '⛔ عدم دسترسی کافی', show_alert: true });
+    return;
   }
 
   const suggestionId = ctx.match[1]!;
@@ -34,12 +35,14 @@ suggestionCallbackComposer.callbackQuery(/^approve_suggestion:(.+)$/, async (ctx
     await ctx.answerCallbackQuery({ text: 'تایید شد' });
   } catch (err: any) {
     await ctx.answerCallbackQuery({ text: err.message || 'خطا در تایید پیشنهاد', show_alert: true });
+    return;
   }
 });
 
-suggestionCallbackComposer.callbackQuery(/^reject_suggestion:(.+)$/, async (ctx) => {
+suggestionCallbackComposer.callbackQuery(/^reject_suggestion:(.+)$/, async (ctx): Promise<void> => {
   if (!isSupervisorOrAdmin(ctx.userRole)) {
-    return ctx.answerCallbackQuery({ text: '⛔ عدم دسترسی کافی', show_alert: true });
+    await ctx.answerCallbackQuery({ text: '⛔ عدم دسترسی کافی', show_alert: true });
+    return;
   }
 
   const suggestionId = ctx.match[1]!;
@@ -48,10 +51,11 @@ suggestionCallbackComposer.callbackQuery(/^reject_suggestion:(.+)$/, async (ctx)
 
   await ctx.reply('📝 لطفاً دلیل رد این پیشنهاد را وارد کنید تا برای کاربر ارسال شود:');
   await ctx.answerCallbackQuery();
+  return;
 });
 
 // Listener for rejection reason entry
-suggestionCallbackComposer.on('message:text', async (ctx, next) => {
+suggestionCallbackComposer.on('message:text', async (ctx, next): Promise<void> => {
   if (ctx.session.step === 'REJECT_REASON_WAIT' && ctx.session.pendingRejection) {
     const reason = ctx.message.text.trim();
     const suggestionId = ctx.session.pendingRejection.suggestionId;
@@ -67,8 +71,10 @@ suggestionCallbackComposer.on('message:text', async (ctx, next) => {
     ctx.session.step = 'IDLE';
     ctx.session.pendingRejection = undefined;
 
-    return ctx.reply('✅ علت رد پیشنهاد ثبت گردید و برای کاربر ارسال شد.');
+    await ctx.reply('✅ علت رد پیشنهاد ثبت گردید و برای کاربر ارسال شد.');
+    return;
   }
 
-  return next();
+  await next();
+  return;
 });

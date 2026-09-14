@@ -7,10 +7,11 @@ const validText=(v:string)=>v.length>0&&v.length<=200;
 
 export const courseComposer = new Composer<CustomContext>();
 
-courseComposer.hears('📚 مشاهده دروس اخیر', async (ctx) => {
+courseComposer.hears('📚 مشاهده دروس اخیر', async (ctx): Promise<void> => {
   const courses = await CourseService.getLatestCourses(5);
   if (courses.length === 0) {
-    return ctx.reply('هنوز هیچ درسی در سیستم ثبت نشده است.');
+    await ctx.reply('هنوز هیچ درسی در سیستم ثبت نشده است.');
+    return;
   }
 
   let text = '📚 آخرین دروس ثبت‌شده در سامانه:\n\n';
@@ -18,49 +19,57 @@ courseComposer.hears('📚 مشاهده دروس اخیر', async (ctx) => {
     text += `${idx + 1}. **${c.title}**\n👨‍🏫 استاد: ${c.instructor}\n📅 نیم‌سال: ${c.semester}\n🔗 [ورود به لینک درس](${c.link})\n\n`;
   });
 
-  await ctx.reply(text, { parse_mode: 'Markdown', disable_web_page_preview: true });
+  await ctx.reply(text, { parse_mode: 'Markdown', link_preview_options: { is_disabled: true } });
 });
 
-courseComposer.hears('🔍 جستجوی درس', async (ctx) => {
+courseComposer.hears('🔍 جستجوی درس', async (ctx): Promise<void> => {
   ctx.session.step = 'SEARCH_COURSE';
   await ctx.reply('لطفاً نام درس، نام استاد یا نیم‌سال تحصیلی را جهت جستجو وارد کنید:');
 });
 
 // Search execution & admin add-course flow dynamic input listener
-courseComposer.on('message:text', async (ctx, next) => {
+courseComposer.on('message:text', async (ctx, next): Promise<void> => {
   const text = ctx.message.text.trim();
-  if (!validText(text)) return ctx.reply('❌ متن باید بین ۱ تا ۲۰۰ کاراکتر باشد.');
+  if (!validText(text)) {
+    await ctx.reply('❌ متن باید بین ۱ تا ۲۰۰ کاراکتر باشد.');
+    return;
+  }
 
   if (ctx.session.step === 'SEARCH_COURSE') {
     const courses = await CourseService.searchCourses(text);
     ctx.session.step = 'IDLE';
-    if (!courses.length) return ctx.reply('نتیجه‌ای پیدا نشد.');
+    if (!courses.length) { await ctx.reply('نتیجه‌ای پیدا نشد.'); return; }
     const result = courses.map((c,i)=>`${i+1}. ${c.title}\n👨‍🏫 ${c.instructor} | 📅 ${c.semester}\n🔗 ${c.link}`).join('\n\n');
-    return ctx.reply(`🔍 نتایج جستجو:\n\n${result}`, { disable_web_page_preview: true });
+    await ctx.reply(`🔍 نتایج جستجو:\n\n${result}`, { link_preview_options: { is_disabled: true } });
+    return;
   }
 
   // Conversational workflow handling for Admin adding a course
   if (ctx.session.step === 'ADD_COURSE_TITLE') {
     ctx.session.pendingCourse = { title: text };
     ctx.session.step = 'ADD_COURSE_INSTRUCTOR';
-    return ctx.reply('لطفاً نام استاد درس را وارد کنید:');
+    await ctx.reply('لطفاً نام استاد درس را وارد کنید:');
+    return;
   }
 
   if (ctx.session.step === 'ADD_COURSE_INSTRUCTOR') {
     ctx.session.pendingCourse = { ...ctx.session.pendingCourse, instructor: text };
     ctx.session.step = 'ADD_COURSE_SEMESTER';
-    return ctx.reply('لطفاً نیم‌سال تحصیلی را وارد کنید (مثال: 4031):');
+    await ctx.reply('لطفاً نیم‌سال تحصیلی را وارد کنید (مثال: 4031):');
+    return;
   }
 
   if (ctx.session.step === 'ADD_COURSE_SEMESTER') {
     ctx.session.pendingCourse = { ...ctx.session.pendingCourse, semester: text };
     ctx.session.step = 'ADD_COURSE_LINK';
-    return ctx.reply('لطفاً لینک مرجع درس (تلگرام، وب‌سایت و...) را وارد کنید:');
+    await ctx.reply('لطفاً لینک مرجع درس (تلگرام، وب‌سایت و...) را وارد کنید:');
+    return;
   }
 
   if (ctx.session.step === 'ADD_COURSE_LINK') {
     if (!isValidUrl(text)) {
-      return ctx.reply('❌ لینک وارد شده معتبر نیست. لطفاً یک URL معتبر که با http یا https شروع می‌شود وارد کنید:');
+      await ctx.reply('❌ لینک وارد شده معتبر نیست. لطفاً یک URL معتبر که با http یا https شروع می‌شود وارد کنید:');
+      return;
     }
 
     const courseData = {
@@ -80,10 +89,11 @@ courseComposer.on('message:text', async (ctx, next) => {
         .text('✅ بله، مجدداً ثبت شود', 'confirm_force_add_course')
         .text('❌ انصراف', 'cancel_add_course');
 
-      return ctx.reply(
+      await ctx.reply(
         `⚠️ **هشدار تکراری بودن درس!**\n\nعلت: ${duplicate.reason}\n\n**درس مشابه موجود:**\n📚 عنوان: ${duplicate.matchedCourse.title}\n👨‍🏫 استاد: ${duplicate.matchedCourse.instructor}\n📅 نیم‌سال: ${duplicate.matchedCourse.semester}\n\nآیا از ثبت مجدد این درس اطمینان دارید؟`,
         { reply_markup: inlineKb, parse_mode: 'Markdown' }
       );
+      return;
     }
 
     // Direct Safe Insertion
@@ -94,8 +104,10 @@ courseComposer.on('message:text', async (ctx, next) => {
 
     ctx.session.step = 'IDLE';
     ctx.session.pendingCourse = undefined;
-    return ctx.reply('✅ درس جدید با موفقیت در سامانه ثبت گردید.');
+    await ctx.reply('✅ درس جدید با موفقیت در سامانه ثبت گردید.');
+    return;
   }
 
-  return next();
+  await next();
+  return;
 });

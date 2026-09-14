@@ -6,36 +6,40 @@ import { isValidUrl } from '../../utils/text-normalizer.js';
 
 export const suggestComposer = new Composer<CustomContext>();
 
-suggestComposer.hears('📥 پیشنهاد درس جدید', async (ctx) => {
+suggestComposer.hears('📥 پیشنهاد درس جدید', async (ctx): Promise<void> => {
   ctx.session.step = 'SUGGEST_TITLE';
   ctx.session.pendingCourse = {};
   await ctx.reply('جهت ارسال پیشنهاد درس جدید، لطفاً **عنوان درس** را وارد کنید:');
 });
 
-suggestComposer.on('message:text', async (ctx, next) => {
+suggestComposer.on('message:text', async (ctx, next): Promise<void> => {
   const text = ctx.message.text.trim();
 
   if (ctx.session.step === 'SUGGEST_TITLE') {
     ctx.session.pendingCourse = { title: text };
     ctx.session.step = 'SUGGEST_INSTRUCTOR';
-    return ctx.reply('لطفاً **نام استاد** را وارد کنید:');
+    await ctx.reply('لطفاً **نام استاد** را وارد کنید:');
+    return;
   }
 
   if (ctx.session.step === 'SUGGEST_INSTRUCTOR') {
     ctx.session.pendingCourse = { ...ctx.session.pendingCourse, instructor: text };
     ctx.session.step = 'SUGGEST_SEMESTER';
-    return ctx.reply('لطفاً **نیم‌سال تحصیلی** را وارد کنید (مثال: 4031):');
+    await ctx.reply('لطفاً **نیم‌سال تحصیلی** را وارد کنید (مثال: 4031):');
+    return;
   }
 
   if (ctx.session.step === 'SUGGEST_SEMESTER') {
     ctx.session.pendingCourse = { ...ctx.session.pendingCourse, semester: text };
     ctx.session.step = 'SUGGEST_LINK';
-    return ctx.reply('لطفاً **لینک مرجع درس** را وارد کنید:');
+    await ctx.reply('لطفاً **لینک مرجع درس** را وارد کنید:');
+    return;
   }
 
   if (ctx.session.step === 'SUGGEST_LINK') {
     if (!isValidUrl(text)) {
-      return ctx.reply('❌ لینک وارد شده نامعتبر است. لطفاً لینک کامل همراه با http/https ارسال کنید:');
+      await ctx.reply('❌ لینک وارد شده نامعتبر است. لطفاً لینک کامل همراه با http/https ارسال کنید:');
+      return;
     }
 
     const suggestionData = {
@@ -67,8 +71,10 @@ suggestComposer.on('message:text', async (ctx, next) => {
 
     ctx.session.step = 'IDLE';
     ctx.session.pendingCourse = undefined;
-    return ctx.reply('✅ پیشنهاد شما با موفقیت ثبت شد و برای ناظران ارسال گردید. با تشکر!');
+    await ctx.reply('✅ پیشنهاد شما با موفقیت ثبت شد و برای ناظران ارسال گردید. با تشکر!');
+    return;
   }
 
-  return next();
+  await next();
+  return;
 });

@@ -4,9 +4,10 @@ import { CourseService } from '../../services/course.service.js';
 
 export const courseCallbackComposer = new Composer<CustomContext>();
 
-courseCallbackComposer.callbackQuery('confirm_force_add_course', async (ctx) => {
+courseCallbackComposer.callbackQuery('confirm_force_add_course', async (ctx): Promise<void> => {
   if (ctx.session.step !== 'ADD_COURSE_CONFIRM_DUPLICATE' || !ctx.session.pendingCourse) {
-    return ctx.answerCallbackQuery({ text: 'جلسه نامعتبر است.', show_alert: true });
+    await ctx.answerCallbackQuery({ text: 'جلسه نامعتبر است.', show_alert: true });
+    return;
   }
 
   const p = ctx.session.pendingCourse;
@@ -23,12 +24,14 @@ courseCallbackComposer.callbackQuery('confirm_force_add_course', async (ctx) => 
 
   await ctx.editMessageText('✅ درس با موفقیت به صورت اجباری ذخیره گردید.');
   await ctx.answerCallbackQuery();
+  return;
 });
 
-courseCallbackComposer.callbackQuery('cancel_add_course', async (ctx) => {
+courseCallbackComposer.callbackQuery('cancel_add_course', async (ctx): Promise<void> => {
   ctx.session.step = 'IDLE';
   ctx.session.pendingCourse = undefined;
 
   await ctx.editMessageText('❌ عملیات افزودن درس لغو شد.');
   await ctx.answerCallbackQuery();
+  return;
 });
