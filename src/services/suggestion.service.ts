@@ -1,87 +1,10 @@
 import { Suggestion, SuggestionStatus } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { normalizePersianText } from '../utils/text-normalizer.js';
-import { CourseService } from './course.service.js';
-
+import { detectCourseDuplicate } from '../utils/duplicate-detector.js';
 export class SuggestionService {
-  static async createSuggestion(data: {
-    title: string;
-    instructor: string;
-    semester: string;
-    link: string;
-    submittedById: bigint;
-  }): Promise<Suggestion> {
-    return prisma.suggestion.create({
-      data: {
-        title: data.title.trim(),
-        normalizedTitle: normalizePersianText(data.title),
-        instructor: data.instructor.trim(),
-        normalizedInstructor: normalizePersianText(data.instructor),
-        semester: data.semester.trim(),
-        normalizedSemester: normalizePersianText(data.semester),
-        link: data.link.trim(),
-        submittedById: data.submittedById,
-      },
-    });
-  }
-
-  static async approveSuggestion(suggestionId: string, reviewerId: bigint) {
-    return prisma.$transaction(async (tx) => {
-      const suggestion = await tx.suggestion.findUnique({
-        where: { id: suggestionId },
-      });
-
-      if (!suggestion || suggestion.status !== SuggestionStatus.PENDING) {
-        throw new Error('پیشنهاد نامعتبر است یا قبلاً بررسی شده است.');
-      }
-
-      const duplicateMatch = await CourseService.checkDuplicate({
-        title: suggestion.title,
-        instructor: suggestion.instructor,
-        semester: suggestion.semester,
-      });
-
-      const updatedSuggestion = await tx.suggestion.update({
-        where: { id: suggestionId },
-        data: {
-          status: SuggestionStatus.APPROVED,
-          reviewedById: reviewerId,
-        },
-      });
-
-      const createdCourse = await tx.course.create({
-        data: {
-          title: suggestion.title,
-          normalizedTitle: suggestion.normalizedTitle,
-          instructor: suggestion.instructor,
-          normalizedInstructor: suggestion.normalizedInstructor,
-          semester: suggestion.semester,
-          normalizedSemester: suggestion.normalizedSemester,
-          link: suggestion.link,
-          createdById: reviewerId,
-        },
-      });
-
-      return { updatedSuggestion, createdCourse, duplicateMatch };
-    });
-  }
-
-  static async rejectSuggestion(suggestionId: string, reviewerId: bigint, reason: string) {
-    return prisma.suggestion.update({
-      where: { id: suggestionId },
-      data: {
-        status: SuggestionStatus.REJECTED,
-        reviewedById: reviewerId,
-        rejectionReason: reason.trim(),
-      },
-      include: { submittedBy: true },
-    });
-  }
-
-  static async getPendingSuggestion(id: string) {
-    return prisma.suggestion.findUnique({
-      where: { id },
-      include: { submittedBy: true },
-    });
-  }
+ static async createSuggestion(data:{title:string;instructor:string;semester:string;link:string;submittedById:bigint}):Promise<Suggestion>{ return prisma.suggestion.create({data:{title:data.title.trim(),normalizedTitle:normalizePersianText(data.title),instructor:data.instructor.trim(),normalizedInstructor:normalizePersianText(data.instructor),semester:data.semester.trim(),normalizedSemester:normalizePersianText(data.semester),link:data.link.trim(),submittedById:data.submittedById}}); }
+ static async approveSuggestion(id:string,reviewerId:bigint){ return prisma.$transaction(async tx=>{ const s=await tx.suggestion.findUnique({where:{id}}); if(!s||s.status!==SuggestionStatus.PENDING)throw new Error('پیشنهاد نامعتبر است یا قبلاً بررسی شده است.'); const courses=await tx.course.findMany({where:{normalizedSemester:s.normalizedSemester},select:{id:true,title:true,instructor:true,semester:true,normalizedTitle:true,normalizedInstructor:true,normalizedSemester:true}}); const duplicateMatch=detectCourseDuplicate({title:s.title,instructor:s.instructor,semester:s.semester},courses); const claimed=await tx.suggestion.updateMany({where:{id,status:SuggestionStatus.PENDING},data:{status:SuggestionStatus.APPROVED,reviewedById:reviewerId}}); if(claimed.count!==1)throw new Error('این پیشنهاد هم‌اکنون توسط شخص دیگری بررسی شد.'); const updatedSuggestion=await tx.suggestion.findUniqueOrThrow({where:{id}}); const createdCourse=await tx.course.create({data:{title:s.title,normalizedTitle:s.normalizedTitle,instructor:s.instructor,normalizedInstructor:s.normalizedInstructor,semester:s.semester,normalizedSemester:s.normalizedSemester,link:s.link,createdById:reviewerId}}); return {updatedSuggestion,createdCourse,duplicateMatch}; }); }
+ static async rejectSuggestion(id:string,reviewerId:bigint,reason:string){ const clean=reason.trim(); if(clean.length<3||clean.length>1000)throw new Error('دلیل رد باید بین ۳ تا ۱۰۰۰ کاراکتر باشد.'); const claimed=await prisma.suggestion.updateMany({where:{id,status:SuggestionStatus.PENDING},data:{status:SuggestionStatus.REJECTED,reviewedById:reviewerId,rejectionReason:clean}}); if(claimed.count!==1)throw new Error('پیشنهاد نامعتبر است یا قبلاً بررسی شده است.'); return prisma.suggestion.findUniqueOrThrow({where:{id},include:{submittedBy:true}}); }
+ static async getPendingSuggestion(id:string){return prisma.suggestion.findFirst({where:{id,status:SuggestionStatus.PENDING},include:{submittedBy:true}});}
 }

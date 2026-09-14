@@ -14,7 +14,7 @@ export const authMiddleware: Middleware<CustomContext> = async (ctx, next) => {
     where: { id: telegramId },
     update: {
       firstName: from.first_name,
-      lastName: from.last_number ?? from.last_name ?? null,
+      lastName: from.last_name ?? null,
       username: from.username ?? null,
       role: role,
     },

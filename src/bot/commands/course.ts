@@ -3,6 +3,8 @@ import { CustomContext } from '../../types/context.js';
 import { CourseService } from '../../services/course.service.js';
 import { isValidUrl } from '../../utils/text-normalizer.js';
 
+const validText=(v:string)=>v.length>0&&v.length<=200;
+
 export const courseComposer = new Composer<CustomContext>();
 
 courseComposer.hears('📚 مشاهده دروس اخیر', async (ctx) => {
@@ -11,7 +13,7 @@ courseComposer.hears('📚 مشاهده دروس اخیر', async (ctx) => {
     return ctx.reply('هنوز هیچ درسی در سیستم ثبت نشده است.');
   }
 
-  let text = '📚 **آخرین دروس ثبت‌شده в سامانه:**\n\n';
+  let text = '📚 آخرین دروس ثبت‌شده در سامانه:\n\n';
   courses.forEach((c, idx) => {
     text += `${idx + 1}. **${c.title}**\n👨‍🏫 استاد: ${c.instructor}\n📅 نیم‌سال: ${c.semester}\n🔗 [ورود به لینک درس](${c.link})\n\n`;
   });
@@ -20,12 +22,22 @@ courseComposer.hears('📚 مشاهده دروس اخیر', async (ctx) => {
 });
 
 courseComposer.hears('🔍 جستجوی درس', async (ctx) => {
+  ctx.session.step = 'SEARCH_COURSE';
   await ctx.reply('لطفاً نام درس، نام استاد یا نیم‌سال تحصیلی را جهت جستجو وارد کنید:');
 });
 
 // Search execution & admin add-course flow dynamic input listener
 courseComposer.on('message:text', async (ctx, next) => {
   const text = ctx.message.text.trim();
+  if (!validText(text)) return ctx.reply('❌ متن باید بین ۱ تا ۲۰۰ کاراکتر باشد.');
+
+  if (ctx.session.step === 'SEARCH_COURSE') {
+    const courses = await CourseService.searchCourses(text);
+    ctx.session.step = 'IDLE';
+    if (!courses.length) return ctx.reply('نتیجه‌ای پیدا نشد.');
+    const result = courses.map((c,i)=>`${i+1}. ${c.title}\n👨‍🏫 ${c.instructor} | 📅 ${c.semester}\n🔗 ${c.link}`).join('\n\n');
+    return ctx.reply(`🔍 نتایج جستجو:\n\n${result}`, { disable_web_page_preview: true });
+  }
 
   // Conversational workflow handling for Admin adding a course
   if (ctx.session.step === 'ADD_COURSE_TITLE') {

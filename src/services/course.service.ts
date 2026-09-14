@@ -1,4 +1,4 @@
-import { Course, Prisma } from '@prisma/client';
+import { Course } from '@prisma/client';
 import { prisma } from '../database/prisma.js';
 import { normalizePersianText } from '../utils/text-normalizer.js';
 import { detectCourseDuplicate, MatchResult } from '../utils/duplicate-detector.js';
