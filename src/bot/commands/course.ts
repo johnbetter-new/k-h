@@ -36,6 +36,7 @@ courseComposer.on('message:text',async(ctx,next):Promise<void>=>{
    const p=ctx.session.pendingResource!; const conflict=await CourseService.findResourceConflict({courseId:p.courseId!,link:p.link!,instructor:p.instructor,semester:text});
    ctx.session.pendingResource={...p,semester:text};
    if(conflict){ctx.session.step='ADD_RESOURCE_CONFLICT_CONFIRM';await ctx.reply('⚠️ منبعی بسیار مشابه قبلاً برای همین درس ثبت شده است. آیا می‌خواهید لینک را با وجود این مورد ثبت کنید؟',{reply_markup:new InlineKeyboard().text('✅ بله، ثبت شود','resource:force').text('❌ لغو','resource:cancel')});return;}
+   if(!p.courseId || !p.link){await ctx.reply('❌ اطلاعات ثبت لینک ناقص است. لطفاً دوباره از ابتدا تلاش کنید.');ctx.session.step='IDLE';ctx.session.pendingResource=undefined;return;}
    await CourseService.createResource({courseId:p.courseId,link:p.link,instructor:p.instructor,semester:text,submittedById:ctx.dbUser.id});ctx.session.step='IDLE';ctx.session.pendingResource=undefined;await ctx.reply('✅ لینک با موفقیت ثبت شد.');return;
  }
  await next();
