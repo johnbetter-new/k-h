@@ -1,6 +1,8 @@
 import { Composer, InlineKeyboard } from 'grammy';
 import { CustomContext } from '../../types/context.js';
 import { CourseService } from '../../services/course.service.js';
+import { SuggestionService } from '../../services/suggestion.service.js';
+import { env } from '../../config/env.js';
 import { isValidUrl } from '../../utils/text-normalizer.js';
 const validText=(v:string)=>v.length>0&&v.length<=200;
 export const courseComposer = new Composer<CustomContext>();
@@ -28,7 +30,7 @@ courseComposer.on('message:text',async(ctx,next):Promise<void>=>{
  if(ctx.session.step==='ADD_RESOURCE_COURSE_SEARCH'){
    const r=await CourseService.resolveCourse(text);ctx.session.pendingCourseCandidates=r.candidates.map(c=>c.id);
    if(r.kind==='NONE'){await ctx.reply('❌ چنین درسی در فهرست رسمی پیدا نشد. لطفاً نام دیگری وارد کنید یا از بخش «پیشنهاد درس جدید» استفاده کنید.');return;}
-   if(r.kind==='EXACT'){ctx.session.pendingResource={...ctx.session.pendingResource,courseId:r.course!.id,courseQuery:text};ctx.session.step='ADD_RESOURCE_INSTRUCTOR';await ctx.reply(`✅ درس انتخاب شد: ${r.course!.title}\n\n👨‍🏫 نام استاد را وارد کنید (در صورت نداشتن، «ندارد» بنویسید):`);return;}
+   if(r.kind==='EXACT'){ctx.session.pendingResource={...ctx.session.pendingResource,courseId:r.course!.id,courseQuery:r.course!.title};ctx.session.step='ADD_RESOURCE_INSTRUCTOR';await ctx.reply(`✅ درس انتخاب شد: ${r.course!.title}\n\n👨‍🏫 نام استاد را وارد کنید (در صورت نداشتن، «ندارد» بنویسید):`);return;}
    ctx.session.step='ADD_RESOURCE_COURSE_SELECT';const kb=new InlineKeyboard();r.candidates.forEach(c=>kb.text(`📚 ${c.title}`,`resource:select:${c.id}`).row());kb.text('❌ هیچ‌کدام','resource:no_course');await ctx.reply('🔎 چند درس مشابه پیدا شد؛ لطفاً یکی را انتخاب کنید:',{reply_markup:kb});return;
  }
  if(ctx.session.step==='ADD_RESOURCE_INSTRUCTOR'){ctx.session.pendingResource={...ctx.session.pendingResource,instructor:text==='ندارد'?'':text};ctx.session.step='ADD_RESOURCE_SEMESTER';await ctx.reply('📅 نیم‌سال را وارد کنید (مثال: 1405-1):');return;}
@@ -37,7 +39,15 @@ courseComposer.on('message:text',async(ctx,next):Promise<void>=>{
    ctx.session.pendingResource={...p,semester:text};
    if(conflict){ctx.session.step='ADD_RESOURCE_CONFLICT_CONFIRM';await ctx.reply('⚠️ منبعی بسیار مشابه قبلاً برای همین درس ثبت شده است. آیا می‌خواهید لینک را با وجود این مورد ثبت کنید؟',{reply_markup:new InlineKeyboard().text('✅ بله، ثبت شود','resource:force').text('❌ لغو','resource:cancel')});return;}
    if(!p.courseId || !p.link){await ctx.reply('❌ اطلاعات ثبت لینک ناقص است. لطفاً دوباره از ابتدا تلاش کنید.');ctx.session.step='IDLE';ctx.session.pendingResource=undefined;return;}
-   await CourseService.createResource({courseId:p.courseId,link:p.link,instructor:p.instructor,semester:text,submittedById:ctx.dbUser.id});ctx.session.step='IDLE';ctx.session.pendingResource=undefined;await ctx.reply('✅ لینک با موفقیت ثبت شد.');return;
+   const s=await SuggestionService.createSuggestion({title:p.courseQuery || 'منبع جدید',instructor:p.instructor || '',semester:text,link:p.link,submittedById:ctx.dbUser.id,courseId:p.courseId});
+   const kb=new InlineKeyboard().text('✅ تایید و افزودن',`approve_suggestion:${s.id}`).text('❌ رد',`reject_suggestion:${s.id}`);
+   await ctx.api.sendMessage(Number(env.SUPERVISORS_GROUP_ID),`📥 لینک جدید برای بررسی
+
+📚 ${s.title}
+👨‍🏫 ${s.instructor || 'ندارد'}
+📅 ${s.semester}
+🔗 ${s.link}`,{reply_markup:kb});
+   ctx.session.step='IDLE';ctx.session.pendingResource=undefined;await ctx.reply('✅ لینک برای بررسی و تأیید ناظر ارسال شد. پس از تأیید، لینک به منابع درس اضافه می‌شود.');return;
  }
  await next();
 });

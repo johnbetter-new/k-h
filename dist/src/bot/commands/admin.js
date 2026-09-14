@@ -1,0 +1,331 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.adminComposer = void 0;
+const grammy_1 = require("grammy");
+const env_js_1 = require("../../config/env.js");
+const roles_js_1 = require("../../auth/roles.js");
+const prisma_js_1 = require("../../database/prisma.js");
+const course_service_js_1 = require("../../services/course.service.js");
+const text_normalizer_js_1 = require("../../utils/text-normalizer.js");
+exports.adminComposer = new grammy_1.Composer();
+const ok = (c) => (0, roles_js_1.isAdmin)(c.userRole) && !!c.chat && BigInt(c.chat.id) === env_js_1.env.ADMIN_ONLY_GROUP_ID;
+const home = () => new grammy_1.InlineKeyboard().text('📊 آمار', 'admin:stats').text('📚 دروس', 'admin:courses').row().text('📝 پیشنهادها', 'admin:suggestions').text('👥 کاربران', 'admin:users').row().text('🛡 ناظران', 'admin:supervisors').text('🚫 دسترسی', 'admin:moderation').row().text('➕ افزودن درس', 'admin:add_course').text('❌ بستن', 'admin:close');
+const back = (to = 'admin:home') => new grammy_1.InlineKeyboard().text('🔙 بازگشت', to);
+function userLabel(u) { return `${u.firstName}${u.lastName ? ' ' + u.lastName : ''} — ${u.role}${u.username ? ' @' + u.username : ''}`; }
+async function users(q) { if (/^\d+$/.test(q)) {
+    const u = await prisma_js_1.prisma.user.findUnique({ where: { id: BigInt(q) } });
+    return u ? [u] : [];
+} const x = q.replace(/^@/, ''); return prisma_js_1.prisma.user.findMany({ where: { OR: [{ username: { contains: x, mode: 'insensitive' } }, { firstName: { contains: q, mode: 'insensitive' } }, { lastName: { contains: q, mode: 'insensitive' } }] }, take: 10 }); }
+exports.adminComposer.command('admin', async (ctx) => { if (!ok(ctx)) {
+    await ctx.reply('⛔ دسترسی غیرمجاز.');
+    return;
+} ctx.session.step = 'IDLE'; await ctx.reply('⚙️ پنل مدیریت KIAU Hoosh', { reply_markup: home() }); });
+exports.adminComposer.hears('⚙️ پنل مدیریت', async (ctx) => { if (!ok(ctx)) {
+    await ctx.reply('⛔ دسترسی غیرمجاز.');
+    return;
+} ctx.session.step = 'IDLE'; await ctx.reply('⚙️ پنل مدیریت KIAU Hoosh', { reply_markup: home() }); });
+exports.adminComposer.callbackQuery(/^admin:/, async (ctx, next) => {
+    if (!ok(ctx)) {
+        await ctx.answerCallbackQuery({ text: '⛔ دسترسی غیرمجاز', show_alert: true });
+        return;
+    }
+    const a = ctx.callbackQuery.data;
+    if (a === 'admin:home') {
+        await ctx.editMessageText('⚙️ پنل مدیریت', { reply_markup: home() });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a === 'admin:close') {
+        await ctx.editMessageText('✅ پنل بسته شد.');
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a === 'admin:stats') {
+        const [u, c, r, p, s, b, x] = await Promise.all([prisma_js_1.prisma.user.count(), prisma_js_1.prisma.course.count({ where: { isActive: true } }), prisma_js_1.prisma.courseResource.count(), prisma_js_1.prisma.suggestion.count({ where: { status: 'PENDING' } }), prisma_js_1.prisma.user.count({ where: { role: 'SUPERVISOR' } }), prisma_js_1.prisma.user.count({ where: { isBanned: true } }), prisma_js_1.prisma.user.count({ where: { isRestricted: true } })]);
+        await ctx.editMessageText(`📊 آمار\n\n👥 کاربران: ${u}\n📚 دروس: ${c}\n🔗 منابع: ${r}\n📝 پیشنهادهای در انتظار: ${p}\n🛡 ناظران: ${s}\n🚫 بن: ${b}\n⛔ محدود: ${x}`, { reply_markup: back() });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a === 'admin:courses') {
+        await ctx.editMessageText('📚 مدیریت دروس', { reply_markup: new grammy_1.InlineKeyboard().text('📋 آخرین دروس', 'admin:courses:list').text('🔎 جستجو', 'admin:courses:search').row().text('➕ افزودن', 'admin:add_course').text('🏷 Alias', 'admin:courses:alias').row().text('🔙 بازگشت', 'admin:home') });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a === 'admin:courses:list') {
+        const cs = await prisma_js_1.prisma.course.findMany({ where: { isActive: true }, orderBy: { createdAt: 'desc' }, take: 15, include: { resources: true, aliases: true } });
+        const t = cs.length ? cs.map((c, i) => `${i + 1}. ${c.title}\n🆔 ${c.id}\n🔗 ${c.resources.length} منبع${c.code ? '\n🔢 کد: ' + c.code : ''}${c.aliases.length ? '\n🏷 ' + c.aliases.map(x => x.alias).join('، ') : ''}`).join('\n\n') : 'درسی وجود ندارد.';
+        await ctx.editMessageText('📋 آخرین دروس\n\n' + t, { reply_markup: back('admin:courses') });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a === 'admin:courses:search') {
+        ctx.session.step = 'ADMIN_SEARCH_COURSE';
+        await ctx.editMessageText('🔎 نام یا کد درس را ارسال کنید:', { reply_markup: back('admin:courses') });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a === 'admin:courses:alias') {
+        ctx.session.step = 'ADMIN_SEARCH_COURSE';
+        await ctx.editMessageText('🏷 برای افزودن Alias، نام یا ID درس را ارسال کنید:', { reply_markup: back('admin:courses') });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a === 'admin:add_course') {
+        ctx.session.step = 'ADD_COURSE_TITLE';
+        ctx.session.pendingCourse = {};
+        await ctx.editMessageText('➕ افزودن درس\n\nعنوان رسمی درس را وارد کنید:', { reply_markup: back('admin:courses') });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a === 'admin:suggestions') {
+        const ss = await prisma_js_1.prisma.suggestion.findMany({ where: { status: 'PENDING' }, orderBy: { createdAt: 'asc' }, take: 10 });
+        const kb = new grammy_1.InlineKeyboard();
+        ss.forEach(s => kb.text('📚 ' + s.title.slice(0, 35), `admin:suggestion:${s.id}`).row());
+        kb.text('🔙 بازگشت', 'admin:home');
+        await ctx.editMessageText(ss.length ? `📝 ${ss.length} پیشنهاد در انتظار است.` : '✅ پیشنهادی در انتظار نیست.', { reply_markup: kb });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a === 'admin:users') {
+        await ctx.editMessageText('👥 مدیریت کاربران', { reply_markup: new grammy_1.InlineKeyboard().text('👥 کاربران اخیر', 'admin:users:list').text('🔎 جستجو', 'admin:users:search').row().text('🛡 ناظران', 'admin:supervisors').text('🚫 دسترسی', 'admin:moderation').row().text('🔙 بازگشت', 'admin:home') });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a === 'admin:users:list') {
+        const us = await prisma_js_1.prisma.user.findMany({ orderBy: { updatedAt: 'desc' }, take: 15 });
+        await ctx.editMessageText(us.map(userLabel).join('\n\n') || 'کاربری وجود ندارد.', { reply_markup: back('admin:users') });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a === 'admin:users:search') {
+        ctx.session.step = 'ADMIN_SEARCH_USER';
+        await ctx.editMessageText('🔎 شناسه، username یا نام کاربر را ارسال کنید:', { reply_markup: back('admin:users') });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a === 'admin:supervisors') {
+        const ss = await prisma_js_1.prisma.user.findMany({ where: { role: 'SUPERVISOR' }, orderBy: { updatedAt: 'desc' } });
+        const kb = new grammy_1.InlineKeyboard();
+        ss.forEach(u => kb.text('➖ ' + u.firstName, `admin:user_role:${u.id}:USER`).row());
+        kb.text('➕ افزودن', 'admin:supervisors:add').row().text('🔙 بازگشت', 'admin:home');
+        await ctx.editMessageText('🛡 مدیریت ناظران\n\n' + (ss.map(userLabel).join('\n\n') || 'هیچ ناظری نیست.'), { reply_markup: kb });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a === 'admin:supervisors:add') {
+        ctx.session.step = 'ADMIN_ADD_SUPERVISOR';
+        await ctx.editMessageText('➕ Telegram ID ناظر را ارسال کنید:', { reply_markup: back('admin:supervisors') });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a === 'admin:moderation') {
+        await ctx.editMessageText('🚫 مدیریت دسترسی', { reply_markup: new grammy_1.InlineKeyboard().text('🔎 انتخاب کاربر', 'admin:moderation:search').text('🚫 بن‌شده‌ها', 'admin:moderation:banned').row().text('⛔ محدودشده‌ها', 'admin:moderation:restricted').row().text('🔙 بازگشت', 'admin:home') });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a === 'admin:moderation:search') {
+        ctx.session.step = 'ADMIN_MODERATION';
+        await ctx.editMessageText('🔎 شناسه، username یا نام کاربر را ارسال کنید:', { reply_markup: back('admin:moderation') });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a === 'admin:moderation:banned' || a === 'admin:moderation:restricted') {
+        const where = a.endsWith('banned') ? { isBanned: true } : { isRestricted: true };
+        const us = await prisma_js_1.prisma.user.findMany({ where, orderBy: { updatedAt: 'desc' }, take: 20 });
+        await ctx.editMessageText(us.map(userLabel).join('\n\n') || 'موردی نیست.', { reply_markup: back('admin:moderation') });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a.startsWith('admin:suggestion:')) {
+        const s = await prisma_js_1.prisma.suggestion.findUnique({ where: { id: a.slice(16) } });
+        if (!s || s.status !== 'PENDING') {
+            await ctx.answerCallbackQuery({ text: 'پیشنهاد دیگر در انتظار نیست.', show_alert: true });
+            return;
+        }
+        await ctx.editMessageText(`📝 پیشنهاد\n\n📚 ${s.title}\n👨‍🏫 ${s.instructor}\n📅 ${s.semester}\n🔗 ${s.link}`, { reply_markup: new grammy_1.InlineKeyboard().text('✅ تأیید', 'approve_suggestion:' + s.id).text('❌ رد', 'reject_suggestion:' + s.id).row().text('🔙 بازگشت', 'admin:suggestions') });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a.startsWith('admin:user_role:')) {
+        const parts = a.split(':');
+        const id = BigInt(parts[2]);
+        const role = parts[3];
+        if (id === ctx.dbUser.id) {
+            await ctx.answerCallbackQuery({ text: 'نقش خودتان قابل تغییر نیست.', show_alert: true });
+            return;
+        }
+        const u = await prisma_js_1.prisma.user.findUnique({ where: { id } });
+        if (!u || u.role === 'ADMIN') {
+            await ctx.answerCallbackQuery({ text: 'کاربر نامعتبر یا ADMIN است.', show_alert: true });
+            return;
+        }
+        await prisma_js_1.prisma.user.update({ where: { id }, data: { role } });
+        await ctx.answerCallbackQuery({ text: 'نقش تغییر کرد.' });
+        await ctx.editMessageText(`✅ نقش ${u.firstName} به ${role} تغییر کرد.`, { reply_markup: back('admin:supervisors') });
+        return;
+    }
+    if (a.startsWith('admin:moderate_user:')) {
+        const id = BigInt(a.split(':')[2]);
+        const u = await prisma_js_1.prisma.user.findUnique({ where: { id } });
+        if (!u || u.role === 'ADMIN') {
+            await ctx.answerCallbackQuery({ text: 'کاربر نامعتبر یا ADMIN است.', show_alert: true });
+            return;
+        }
+        const kb = new grammy_1.InlineKeyboard().text('🚫 بن دائم', `admin:ban:${id}:0`).text('⛔ محدود دائم', `admin:restrict:${id}:0`).row().text('⏱ بن 1س', `admin:ban:${id}:60`).text('⏱ بن 24س', `admin:ban:${id}:1440`).row().text('⏱ محدود 1س', `admin:restrict:${id}:60`).text('⏱ محدود 24س', `admin:restrict:${id}:1440`).row().text('🔓 رفع همه', 'admin:unmoderate:' + id);
+        await ctx.editMessageText(`👤 ${userLabel(u)}\n\nنوع محدودیت را انتخاب کنید:`, { reply_markup: kb });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a.startsWith('admin:ban:') || a.startsWith('admin:restrict:')) {
+        const [_, action, id, mins] = a.split(':');
+        const u = await prisma_js_1.prisma.user.findUnique({ where: { id: BigInt(id) } });
+        if (!u || u.role === 'ADMIN') {
+            await ctx.answerCallbackQuery({ text: 'کاربر نامعتبر.', show_alert: true });
+            return;
+        }
+        ctx.session.pendingModeration = { userId: BigInt(id), action: action === 'ban' ? 'BAN' : 'RESTRICT', durationMinutes: Number(mins) || undefined };
+        ctx.session.step = 'ADMIN_MODERATION_REASON';
+        await ctx.reply(`📝 دلیل ${action === 'ban' ? 'بن' : 'محدودیت'} برای ${u.firstName} را ارسال کنید:`);
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    if (a.startsWith('admin:unmoderate:')) {
+        const id = BigInt(a.split(':')[2]);
+        await prisma_js_1.prisma.user.update({ where: { id }, data: { isBanned: false, bannedUntil: null, banReason: null, isRestricted: false, restrictedUntil: null, restrictionReason: null } });
+        await ctx.editMessageText('🔓 تمام محدودیت‌ها برداشته شد.', { reply_markup: back('admin:moderation') });
+        await ctx.answerCallbackQuery();
+        return;
+    }
+    await next();
+});
+exports.adminComposer.on('message:text', async (ctx, next) => {
+    if (!ok(ctx)) {
+        await next();
+        return;
+    }
+    const t = ctx.message.text.trim();
+    if (ctx.session.step === 'ADD_COURSE_TITLE') {
+        ctx.session.pendingCourse = { title: t };
+        ctx.session.step = 'ADD_COURSE_CODE';
+        await ctx.reply('🔢 کد درس را وارد کنید؛ اگر ندارد «ندارد» بنویسید:');
+        return;
+    }
+    if (ctx.session.step === 'ADD_COURSE_CODE') {
+        ctx.session.pendingCourse = { ...ctx.session.pendingCourse, code: t === 'ندارد' ? '' : t };
+        ctx.session.step = 'ADD_COURSE_INSTRUCTOR';
+        await ctx.reply('👨‍🏫 نام استاد اولین منبع را وارد کنید:');
+        return;
+    }
+    if (ctx.session.step === 'ADD_COURSE_INSTRUCTOR') {
+        ctx.session.pendingCourse = { ...ctx.session.pendingCourse, instructor: t };
+        ctx.session.step = 'ADD_COURSE_SEMESTER';
+        await ctx.reply('📅 نیم‌سال را وارد کنید:');
+        return;
+    }
+    if (ctx.session.step === 'ADD_COURSE_SEMESTER') {
+        ctx.session.pendingCourse = { ...ctx.session.pendingCourse, semester: t };
+        ctx.session.step = 'ADD_COURSE_LINK';
+        await ctx.reply('🔗 لینک اولین منبع را وارد کنید:');
+        return;
+    }
+    if (ctx.session.step === 'ADD_COURSE_LINK') {
+        if (!/^https?:\/\//i.test(t)) {
+            await ctx.reply('❌ لینک معتبر نیست.');
+            return;
+        }
+        const p = ctx.session.pendingCourse;
+        const r = await course_service_js_1.CourseService.resolveCourse(p.title);
+        if (r.kind !== 'NONE') {
+            await ctx.reply('⚠️ این عنوان با درس موجود تداخل دارد. ابتدا از همان درس استفاده کنید یا از پنل مدیریت با دقت بررسی کنید.');
+            ctx.session.step = 'IDLE';
+            return;
+        }
+        await course_service_js_1.CourseService.createCourse({ title: p.title, code: p.code, instructor: p.instructor, semester: p.semester, link: t, createdById: ctx.dbUser.id });
+        ctx.session.step = 'IDLE';
+        ctx.session.pendingCourse = undefined;
+        await ctx.reply('✅ درس و اولین منبع ثبت شد.');
+        return;
+    }
+    if (ctx.session.step === 'ADMIN_SEARCH_COURSE') {
+        const aliasCourseId = ctx.session.pendingCourse?.title;
+        if (aliasCourseId && /^[0-9a-f-]{36}$/i.test(aliasCourseId)) {
+            await course_service_js_1.CourseService.addAlias(aliasCourseId, t);
+            ctx.session.pendingCourse = undefined;
+            ctx.session.step = 'IDLE';
+            await ctx.reply('✅ Alias اضافه شد.', { reply_markup: back('admin:courses') });
+            return;
+        }
+        const n = (0, text_normalizer_js_1.normalizePersianText)(t);
+        const cs = await prisma_js_1.prisma.course.findMany({ where: { isActive: true, OR: [{ normalizedTitle: { contains: n } }, { normalizedCode: { contains: n } }, { aliases: { some: { normalizedAlias: { contains: n } } } }] }, take: 10, include: { aliases: true } });
+        if (!cs.length) {
+            await ctx.reply('❌ درس پیدا نشد.');
+            return;
+        }
+        const kb = new grammy_1.InlineKeyboard();
+        cs.forEach(c => kb.text(c.title, `admin:course:${c.id}`).row());
+        await ctx.reply('📚 درس را انتخاب کنید:', { reply_markup: kb });
+        ctx.session.step = 'IDLE';
+        return;
+    }
+    if (ctx.session.step === 'ADMIN_ADD_SUPERVISOR') {
+        if (!/^\d+$/.test(t)) {
+            await ctx.reply('❌ Telegram ID نامعتبر است.');
+            return;
+        }
+        const id = BigInt(t);
+        if (id === ctx.dbUser.id) {
+            await ctx.reply('❌ نمی‌توانید خودتان را Supervisor کنید.');
+            return;
+        }
+        const u = await prisma_js_1.prisma.user.upsert({ where: { id }, update: { role: 'SUPERVISOR' }, create: { id, firstName: 'کاربر', role: 'SUPERVISOR' } });
+        ctx.session.step = 'IDLE';
+        await ctx.reply(`✅ ${u.firstName} به Supervisor تبدیل شد.`, { reply_markup: back('admin:supervisors') });
+        return;
+    }
+    if (ctx.session.step === 'ADMIN_SEARCH_USER' || ctx.session.step === 'ADMIN_MODERATION') {
+        const us = await users(t);
+        if (!us.length) {
+            await ctx.reply('❌ کاربری پیدا نشد.');
+            return;
+        }
+        const kb = new grammy_1.InlineKeyboard();
+        us.forEach(u => kb.text(userLabel(u).slice(0, 60), `admin:${ctx.session.step === 'ADMIN_MODERATION' ? 'moderate_user' : 'user'}:${u.id}`).row());
+        await ctx.reply('👤 کاربر را انتخاب کنید:', { reply_markup: kb });
+        ctx.session.step = 'IDLE';
+        return;
+    }
+    if (ctx.session.step === 'ADMIN_MODERATION_REASON') {
+        const p = ctx.session.pendingModeration;
+        if (!p) {
+            ctx.session.step = 'IDLE';
+            return;
+        }
+        const until = p.durationMinutes ? new Date(Date.now() + p.durationMinutes * 60000) : null;
+        await prisma_js_1.prisma.user.update({ where: { id: p.userId }, data: p.action === 'BAN' ? { isBanned: true, bannedUntil: until, banReason: t } : { isRestricted: true, restrictedUntil: until, restrictionReason: t } });
+        ctx.session.step = 'IDLE';
+        ctx.session.pendingModeration = undefined;
+        await ctx.reply('✅ عملیات با موفقیت اعمال شد.', { reply_markup: back('admin:moderation') });
+        return;
+    }
+    if (ctx.session.step === 'ADMIN_CONFIRM_DELETE_COURSE')
+        return;
+    await next();
+});
+exports.adminComposer.callbackQuery(/^admin:alias:(.+)$/, async (ctx) => { if (!ok(ctx)) {
+    await ctx.answerCallbackQuery({ text: '⛔', show_alert: true });
+    return;
+} const c = await course_service_js_1.CourseService.getCourse(ctx.match[1]); if (!c) {
+    await ctx.answerCallbackQuery({ text: 'درس پیدا نشد', show_alert: true });
+    return;
+} ctx.session.step = 'ADMIN_SEARCH_COURSE'; ctx.session.pendingCourse = { title: c.id }; await ctx.editMessageText(`🏷 Alias جدید برای «${c.title}» را ارسال کنید:`); await ctx.answerCallbackQuery(); });
+exports.adminComposer.callbackQuery(/^admin:course:(.+)$/, async (ctx) => { if (!ok(ctx)) {
+    await ctx.answerCallbackQuery({ text: '⛔', show_alert: true });
+    return;
+} const c = await course_service_js_1.CourseService.getCourse(ctx.match[1]); if (!c) {
+    await ctx.answerCallbackQuery({ text: 'پیدا نشد', show_alert: true });
+    return;
+} const kb = new grammy_1.InlineKeyboard().text('🗑 غیرفعال', 'admin:course_deactivate:' + c.id).row(); await ctx.editMessageText(`📚 ${c.title}\n🆔 ${c.id}\n🔗 ${c.resources.length} منبع\n🏷 ${c.aliases.map(a => a.alias).join('، ') || 'بدون Alias'}`, { reply_markup: kb }); await ctx.answerCallbackQuery(); });
+exports.adminComposer.callbackQuery(/^admin:course_deactivate:(.+)$/, async (ctx) => { if (!ok(ctx)) {
+    await ctx.answerCallbackQuery({ text: '⛔', show_alert: true });
+    return;
+} await course_service_js_1.CourseService.deactivate(ctx.match[1]); await ctx.editMessageText('✅ درس غیرفعال شد.', { reply_markup: back('admin:courses') }); await ctx.answerCallbackQuery(); });
