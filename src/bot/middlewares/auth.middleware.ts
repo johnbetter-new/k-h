@@ -16,19 +16,38 @@ export const authMiddleware: Middleware<CustomContext> = async (ctx, next) => {
       firstName: from.first_name,
       lastName: from.last_name ?? null,
       username: from.username ?? null,
-      role: role,
+      role,
     },
     create: {
       id: telegramId,
       firstName: from.first_name,
       lastName: from.last_name ?? null,
       username: from.username ?? null,
-      role: role,
+      role,
     },
   });
 
   ctx.userRole = dbUser.role;
   ctx.dbUser = dbUser;
 
-  return next();
+  // Admins must never be blocked by stale moderation records.
+  if (dbUser.role !== 'ADMIN') {
+    const now = new Date();
+    if (dbUser.isBanned && (!dbUser.bannedUntil || dbUser.bannedUntil > now)) {
+      await ctx.reply('🚫 دسترسی شما به ربات مسدود شده است.');
+      return;
+    }
+    if (dbUser.isBanned && dbUser.bannedUntil && dbUser.bannedUntil <= now) {
+      await prisma.user.update({ where: { id: telegramId }, data: { isBanned: false, bannedUntil: null, banReason: null } });
+    }
+    if (dbUser.isRestricted && (!dbUser.restrictedUntil || dbUser.restrictedUntil > now)) {
+      await ctx.reply('⛔ دسترسی شما به امکانات ربات محدود شده است.');
+      return;
+    }
+    if (dbUser.isRestricted && dbUser.restrictedUntil && dbUser.restrictedUntil <= now) {
+      await prisma.user.update({ where: { id: telegramId }, data: { isRestricted: false, restrictedUntil: null, restrictionReason: null } });
+    }
+  }
+
+  await next();
 };

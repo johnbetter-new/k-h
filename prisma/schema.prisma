@@ -25,6 +25,12 @@ model User {
   firstName        String
   lastName         String?
   role             Role         @default(USER)
+  isBanned         Boolean      @default(false)
+  bannedUntil      DateTime?
+  banReason        String?
+  isRestricted     Boolean      @default(false)
+  restrictedUntil  DateTime?
+  restrictionReason String?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
   
