@@ -48,6 +48,46 @@ export class CourseService {
     return r.candidates.sort((a,b)=>b.score-a.score).map(({ score: _s, matchedBy: _m, ...c }) => c);
   }
 
+  static async getInstructorsForSearch(courseId: string): Promise<Array<{ name: string; normalized: string }>> {
+    const rows = await prisma.courseResource.findMany({
+      where: { courseId },
+      select: { instructor: true, normalizedInstructor: true },
+      distinct: ['normalizedInstructor'],
+      orderBy: { instructor: 'asc' }
+    });
+    return rows.map(r => ({
+      name: r.instructor?.trim() || 'استاد ثبت نشده',
+      normalized: r.normalizedInstructor || '__none__'
+    }));
+  }
+
+  static async getSemestersForSearch(courseId: string, normalizedInstructor: string): Promise<Array<{ semester: string; normalizedSemester: string }>> {
+    const rows = await prisma.courseResource.findMany({
+      where: {
+        courseId,
+        normalizedInstructor: normalizedInstructor === '__none__' ? null : normalizedInstructor,
+        normalizedSemester: { not: null }
+      },
+      select: { semester: true, normalizedSemester: true },
+      distinct: ['normalizedSemester'],
+      orderBy: { semester: 'desc' }
+    });
+    return rows
+      .filter(r => !!r.normalizedSemester && !!r.semester)
+      .map(r => ({ semester: r.semester!, normalizedSemester: r.normalizedSemester! }));
+  }
+
+  static async getResourcesForSearch(courseId: string, normalizedInstructor: string, normalizedSemester: string) {
+    return prisma.courseResource.findMany({
+      where: {
+        courseId,
+        normalizedInstructor: normalizedInstructor === '__none__' ? null : normalizedInstructor,
+        normalizedSemester
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
   static async findResourceConflict(input: { courseId: string; link: string; instructor?: string; semester?: string; }) {
     const link = input.link.trim(); const ni = input.instructor ? normalizePersianText(input.instructor) : ''; const ns = input.semester ? normalizePersianText(input.semester) : '';
     return prisma.courseResource.findFirst({ where: { courseId: input.courseId, link, ...(ni ? { normalizedInstructor: ni } : {}), ...(ns ? { normalizedSemester: ns } : {}) } });

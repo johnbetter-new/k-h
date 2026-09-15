@@ -12,6 +12,10 @@ export interface SessionData {
   pendingResource?: { link?: string; courseId?: string; courseQuery?: string; instructor?: string; semester?: string };
   pendingSuggestion?: { courseId?: string; title?: string; instructor?: string; semester?: string; link?: string };
   pendingCourseCandidates?: string[];
+  pendingSearchCourseId?: string;
+  pendingSearchInstructors?: Array<{ name: string; normalized: string }>;
+  pendingSearchInstructor?: { name: string; normalized: string };
+  pendingSearchSemesters?: Array<{ semester: string; normalizedSemester: string }>;
   pendingRejection?: { suggestionId: string };
   pendingModeration?: { userId: bigint; action: 'BAN' | 'RESTRICT'; durationMinutes?: number };
   pendingSemesterDeletion?: { normalizedSemester: string; semester: string; count: number };

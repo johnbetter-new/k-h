@@ -4,10 +4,41 @@ import { CourseService } from '../../services/course.service.js';
 import { SuggestionService } from '../../services/suggestion.service.js';
 import { env } from '../../config/env.js';
 import { isValidUrl } from '../../utils/text-normalizer.js';
+
 const validText=(v:string)=>v.length>0&&v.length<=200;
 export const courseComposer = new Composer<CustomContext>();
 
-courseComposer.hears('📚 مشاهده دروس اخیر', async (ctx): Promise<void> => {
+async function beginSearchForCourse(ctx: CustomContext, courseId: string) {
+  const course = await CourseService.getCourse(courseId);
+  if (!course) { await ctx.reply('❌ درس پیدا نشد.'); return; }
+
+  const instructors = await CourseService.getInstructorsForSearch(courseId);
+  ctx.session.pendingSearchCourseId = courseId;
+  ctx.session.pendingSearchInstructors = instructors;
+
+  if (!instructors.length) {
+    ctx.session.pendingSearchInstructor = { name: 'استاد ثبت نشده', normalized: '__none__' };
+    const semesters = await CourseService.getSemestersForSearch(courseId, '__none__');
+    ctx.session.pendingSearchSemesters = semesters;
+    if (!semesters.length) {
+      ctx.session.step='IDLE';
+      await ctx.reply(`📚 ${course.title}\n\n❌ برای این درس هنوز کلاسی ثبت نشده است.`);
+      return;
+    }
+    ctx.session.step='SEARCH_SEMESTER_SELECT';
+    const kb=new InlineKeyboard();
+    semesters.forEach((s,i)=>kb.text(`📅 ${s.semester}`,`search:semester:${i}`).row());
+    await ctx.reply(`📚 ${course.title}\n\n📅 نیم‌سال موردنظر را انتخاب کنید:`,{reply_markup:kb});
+    return;
+  }
+
+  ctx.session.step='SEARCH_INSTRUCTOR_SELECT';
+  const kb=new InlineKeyboard();
+  instructors.forEach((inst,i)=>kb.text(`👨‍🏫 ${inst.name}`.slice(0,60),`search:instructor:${i}`).row());
+  await ctx.reply(`📚 ${course.title}\n\n👨‍🏫 استاد موردنظر را انتخاب کنید:`,{reply_markup:kb});
+}
+
+courseComposer.hears('📚 مشاهده دروس اخیر', async ctx => {
   const courses=await CourseService.getLatestCourses(10); if(!courses.length){await ctx.reply('هنوز هیچ درسی ثبت نشده است.');return;}
   const kb=new InlineKeyboard(); courses.forEach(c=>kb.text(`📚 ${c.title.slice(0,35)}`,`course:view:${c.id}`).row());
   await ctx.reply('📚 دروس موجود در سامانه:\n\nبرای مشاهده منابع، درس را انتخاب کنید:',{reply_markup:kb});
@@ -18,10 +49,16 @@ courseComposer.hears('➕ ثبت لینک جدید', async ctx=>{ctx.session.ste
 courseComposer.on('message:text',async(ctx,next):Promise<void>=>{
  const text=ctx.message.text.trim(); if(!validText(text)){await ctx.reply('❌ متن باید بین ۱ تا ۲۰۰ کاراکتر باشد.');return;}
  if(ctx.session.step==='SEARCH_COURSE'){
-   const r=await CourseService.resolveCourse(text); ctx.session.pendingCourseCandidates=r.candidates.map(c=>c.id); ctx.session.step=r.kind==='EXACT'?'IDLE':'SEARCH_COURSE_SELECT';
-   if(r.kind==='NONE'){await ctx.reply('❌ درسی با این نام پیدا نشد.');return;}
+   const r=await CourseService.resolveCourse(text); ctx.session.pendingCourseCandidates=r.candidates.map(c=>c.id);
+   if(r.kind==='NONE'){ctx.session.step='IDLE';await ctx.reply('❌ درسی با این نام پیدا نشد.');return;}
+   if(r.kind==='EXACT'){
+     ctx.session.step='IDLE';
+     await beginSearchForCourse(ctx,r.course!.id);
+     return;
+   }
+   ctx.session.step='SEARCH_COURSE_SELECT';
    const kb=new InlineKeyboard(); r.candidates.forEach(c=>kb.text(`📚 ${c.title}`,`course:select:${c.id}`).row());
-   await ctx.reply(r.kind==='EXACT'?`✅ درس پیدا شد: ${r.candidates[0].title}`:'🔎 چند تطابق احتمالی پیدا شد. لطفاً درس موردنظر را انتخاب کنید:',{reply_markup:kb}); return;
+   await ctx.reply('🔎 چند تطابق احتمالی پیدا شد. لطفاً درس موردنظر را انتخاب کنید:',{reply_markup:kb}); return;
  }
  if(ctx.session.step==='ADD_RESOURCE_LINK'){
    if(!isValidUrl(text)){await ctx.reply('❌ لینک معتبر نیست.');return;}
@@ -41,12 +78,7 @@ courseComposer.on('message:text',async(ctx,next):Promise<void>=>{
    if(!p.courseId || !p.link){await ctx.reply('❌ اطلاعات ثبت لینک ناقص است. لطفاً دوباره از ابتدا تلاش کنید.');ctx.session.step='IDLE';ctx.session.pendingResource=undefined;return;}
    const s=await SuggestionService.createSuggestion({title:p.courseQuery || 'منبع جدید',instructor:p.instructor || '',semester:text,link:p.link,submittedById:ctx.dbUser.id,courseId:p.courseId});
    const kb=new InlineKeyboard().text('✅ تایید و افزودن',`approve_suggestion:${s.id}`).text('❌ رد',`reject_suggestion:${s.id}`);
-   await ctx.api.sendMessage(Number(env.SUPERVISORS_GROUP_ID),`📥 لینک جدید برای بررسی
-
-📚 ${s.title}
-👨‍🏫 ${s.instructor || 'ندارد'}
-📅 ${s.semester}
-🔗 ${s.link}`,{reply_markup:kb});
+   await ctx.api.sendMessage(Number(env.SUPERVISORS_GROUP_ID),`📥 لینک جدید برای بررسی\n\n📚 ${s.title}\n👨‍🏫 ${s.instructor || 'ندارد'}\n📅 ${s.semester}\n🔗 ${s.link}`,{reply_markup:kb});
    ctx.session.step='IDLE';ctx.session.pendingResource=undefined;await ctx.reply('✅ لینک برای بررسی و تأیید ناظر ارسال شد. پس از تأیید، لینک به منابع درس اضافه می‌شود.');return;
  }
  await next();
