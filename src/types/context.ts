@@ -14,6 +14,8 @@ export interface SessionData {
   pendingCourseCandidates?: string[];
   pendingRejection?: { suggestionId: string };
   pendingModeration?: { userId: bigint; action: 'BAN' | 'RESTRICT'; durationMinutes?: number };
+  pendingSemesterDeletion?: { normalizedSemester: string; semester: string; count: number };
+  pendingSemesterDeletionOptions?: Array<{ normalizedSemester: string; semester: string; count: number }>;
 }
 export interface CustomContextProps { userRole: Role; dbUser: { id: bigint; firstName: string; lastName: string | null; username: string | null; role: Role }; }
 export type CustomContext = Context & SessionFlavor<SessionData> & CustomContextProps;
