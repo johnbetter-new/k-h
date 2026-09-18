@@ -6,6 +6,11 @@ import { env } from '../../config/env.js';
 import { isValidUrl } from '../../utils/text-normalizer.js';
 
 const validText=(v:string)=>v.length>0&&v.length<=200;
+
+function submitterLabel(ctx: CustomContext): string {
+  if (ctx.dbUser.username?.trim()) return `@${ctx.dbUser.username.trim()}`;
+  return [ctx.dbUser.firstName, ctx.dbUser.lastName].filter(Boolean).join(' ').trim() || 'کاربر بدون نام';
+}
 export const courseComposer = new Composer<CustomContext>();
 
 async function beginSearchForCourse(ctx: CustomContext, courseId: string) {
@@ -78,7 +83,7 @@ courseComposer.on('message:text',async(ctx,next):Promise<void>=>{
    if(!p.courseId || !p.link){await ctx.reply('❌ اطلاعات ثبت لینک ناقص است. لطفاً دوباره از ابتدا تلاش کنید.');ctx.session.step='IDLE';ctx.session.pendingResource=undefined;return;}
    const s=await SuggestionService.createSuggestion({title:p.courseQuery || 'منبع جدید',instructor:p.instructor || '',semester:text,link:p.link,submittedById:ctx.dbUser.id,courseId:p.courseId});
    const kb=new InlineKeyboard().text('✅ تایید و افزودن',`approve_suggestion:${s.id}`).text('❌ رد',`reject_suggestion:${s.id}`);
-   await ctx.api.sendMessage(Number(env.SUPERVISORS_GROUP_ID),`📥 لینک جدید برای بررسی\n\n📚 ${s.title}\n👨‍🏫 ${s.instructor || 'ندارد'}\n📅 ${s.semester}\n🔗 ${s.link}`,{reply_markup:kb});
+   await ctx.api.sendMessage(Number(env.SUPERVISORS_GROUP_ID),`📥 لینک جدید برای بررسی\n\n👤 ثبت‌کننده: ${submitterLabel(ctx)}\n🆔 Telegram ID: ${ctx.dbUser.id.toString()}\n📚 ${s.title}\n👨‍🏫 ${s.instructor || 'ندارد'}\n📅 ${s.semester}\n🔗 ${s.link}`,{reply_markup:kb});
    ctx.session.step='IDLE';ctx.session.pendingResource=undefined;await ctx.reply('✅ لینک برای بررسی و تأیید ناظر ارسال شد. پس از تأیید، لینک به منابع درس اضافه می‌شود.');return;
  }
  await next();
