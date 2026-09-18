@@ -7,14 +7,158 @@ import { CourseService } from '../../services/course.service.js';
 import { normalizePersianText } from '../../utils/text-normalizer.js';
 export const adminComposer=new Composer<CustomContext>();
 const ok=(c:CustomContext)=>isAdmin(c.userRole)&&!!c.chat&&BigInt(c.chat.id)===env.ADMIN_ONLY_GROUP_ID;
-const home=()=>new InlineKeyboard().text('📊 آمار','admin:stats').text('📚 دروس','admin:courses').row().text('📝 پیشنهادها','admin:suggestions').text('👥 کاربران','admin:users').row().text('🛡 ناظران','admin:supervisors').text('🚫 دسترسی','admin:moderation').row().text('🗑 حذف لینک‌های نیمسال','admin:semester_delete').row().text('➕ افزودن درس','admin:add_course').text('❌ بستن','admin:close');
+const home=()=>new InlineKeyboard().text('📊 آمار','admin:stats').text('📚 دروس','admin:courses').row().text('📝 پیشنهادها','admin:suggestions').text('👥 کاربران','admin:users').row().text('🛡 ناظران','admin:supervisors').text('🚫 دسترسی','admin:moderation').row().text('🗑 حذف لینک‌های نیمسال','admin:semester_delete').row().text('📣 ارسال پیام','admin:broadcast').row().text('➕ افزودن درس','admin:add_course').text('❌ بستن','admin:close');
 const back=(to='admin:home')=>new InlineKeyboard().text('🔙 بازگشت',to);
 function userLabel(u:any){return `${u.firstName}${u.lastName?' '+u.lastName:''} — ${u.role}${u.username?' @'+u.username:''}`;}
 async function users(q:string){if(/^\d+$/.test(q)){const u=await prisma.user.findUnique({where:{id:BigInt(q)}});return u?[u]:[];}const x=q.replace(/^@/,'');return prisma.user.findMany({where:{OR:[{username:{contains:x,mode:'insensitive'}},{firstName:{contains:q,mode:'insensitive'}},{lastName:{contains:q,mode:'insensitive'}}]},take:10});}
 adminComposer.command('admin',async ctx=>{if(!ok(ctx)){await ctx.reply('⛔ دسترسی غیرمجاز.');return;}ctx.session.step='IDLE';await ctx.reply('⚙️ پنل مدیریت KIAU Hoosh',{reply_markup:home()});});
 adminComposer.hears('⚙️ پنل مدیریت',async ctx=>{if(!ok(ctx)){await ctx.reply('⛔ دسترسی غیرمجاز.');return;}ctx.session.step='IDLE';await ctx.reply('⚙️ پنل مدیریت KIAU Hoosh',{reply_markup:home()});});
+
+function broadcastMenu(selectedCount=0) {
+  return new InlineKeyboard()
+    .text('📢 ارسال به همه کاربران', 'admin:broadcast:all').row()
+    .text(`👥 انتخاب کاربران (${selectedCount})`, 'admin:broadcast:selected').row()
+    .text('🔙 بازگشت', 'admin:home');
+}
+
+function broadcastSelectedKeyboard(usersList:any[], selectedIds:bigint[]) {
+  const selected = new Set(selectedIds.map(String));
+  const kb = new InlineKeyboard();
+  usersList.forEach((u:any) => {
+    const mark = selected.has(String(u.id)) ? '☑️' : '⬜';
+    kb.text(`${mark} ${userLabel(u).slice(0, 52)}`, `admin:broadcast:toggle:${u.id}`).row();
+  });
+  kb.text('🔎 جستجوی کاربر', 'admin:broadcast:search').row();
+  kb.text(`📨 ادامه با ${selectedIds.length} کاربر`, 'admin:broadcast:compose').row();
+  kb.text('🔙 بازگشت', 'admin:broadcast');
+  return kb;
+}
+
+async function broadcastUsers(query?: string) {
+  if (query) return users(query);
+  return prisma.user.findMany({ orderBy: { updatedAt: 'desc' }, take: 20 });
+}
+
+async function executeBroadcast(ctx:CustomContext, text:string) {
+  if (!ctx.session.pendingBroadcast) {
+    await ctx.reply('❌ اطلاعات ارسال پیدا نشد. دوباره از پنل شروع کنید.');
+    ctx.session.step='IDLE';
+    return;
+  }
+  if (text.length === 0) {
+    await ctx.reply('❌ متن پیام نمی‌تواند خالی باشد.');
+    return;
+  }
+  if (text.length > 4000) {
+    await ctx.reply('❌ متن پیام بیش از حد طولانی است. حداکثر ۴۰۰۰ کاراکتر وارد کنید.');
+    return;
+  }
+
+  const target = ctx.session.pendingBroadcast;
+  const targetIds = target.target === 'ALL'
+    ? undefined
+    : target.selectedUserIds.map(id => id);
+  const recipients = await prisma.user.findMany({
+    where: targetIds ? { id: { in: targetIds } } : undefined,
+    orderBy: { id: 'asc' }
+  });
+
+  if (recipients.length === 0) {
+    await ctx.reply('❌ هیچ کاربری برای ارسال انتخاب نشده است.');
+    return;
+  }
+
+  ctx.session.step='IDLE';
+  ctx.session.pendingBroadcast=undefined;
+
+  const status = await ctx.reply(`📣 ارسال پیام آغاز شد...\n\n👥 گیرندگان: ${recipients.length}\n⏳ لطفاً صبر کنید؛ نتیجه نهایی بعد از پایان ارسال اعلام می‌شود.`);
+  let success = 0;
+  let failed = 0;
+  const failedUsers:string[] = [];
+
+  for (let i=0; i<recipients.length; i++) {
+    const recipient = recipients[i];
+    let sent = false;
+    let lastError = '';
+    for (let attempt=0; attempt<2 && !sent; attempt++) {
+      try {
+        await ctx.api.sendMessage(String(recipient.id), text);
+        sent = true;
+      } catch (error) {
+        const e:any = error;
+        lastError = e?.description || e?.message || 'خطای ناشناخته';
+        const retryAfter = Number(e?.parameters?.retry_after || e?.error?.parameters?.retry_after || 0);
+        if (retryAfter > 0 && attempt === 0) {
+          await new Promise(resolve => setTimeout(resolve, retryAfter * 1000 + 250));
+        }
+      }
+    }
+    if (sent) success++;
+    else {
+      failed++;
+      const label = recipient.username ? '@'+recipient.username : `${recipient.firstName}${recipient.lastName?' '+recipient.lastName:''}`;
+      if (failedUsers.length < 10) failedUsers.push(`${label || recipient.id}: ${lastError}`);
+    }
+    if (i < recipients.length - 1) await new Promise(resolve => setTimeout(resolve, 50));
+
+    if ((i + 1) % 50 === 0) {
+      try { await ctx.api.editMessageText(ctx.chat!.id, status.message_id, `📣 ارسال پیام در حال انجام است...\n\n📊 ${i + 1}/${recipients.length}\n✅ موفق: ${success}\n❌ ناموفق: ${failed}`); } catch {}
+    }
+  }
+
+  let report = `📣 <b>گزارش نهایی ارسال پیام</b>\n\n👥 کل گیرندگان: ${recipients.length}\n✅ ارسال موفق: ${success}\n❌ ارسال ناموفق: ${failed}`;
+  if (failedUsers.length) report += `\n\n<b>نمونه خطاها:</b>\n${failedUsers.map(x => x.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')).join('\n')}`;
+  if (failed > failedUsers.length) report += `\n… و ${failed - failedUsers.length} خطای دیگر.`;
+  report += '\n\n💡 ارسال ناموفق معمولاً به‌دلیل بلاک بودن ربات، حذف حساب یا محدودیت Telegram رخ می‌دهد.';
+  try { await ctx.api.editMessageText(ctx.chat!.id, status.message_id, report, { parse_mode: 'HTML' }); }
+  catch { await ctx.reply(report, { parse_mode: 'HTML' }); }
+}
+
 adminComposer.callbackQuery(/^admin:/,async(ctx,next)=>{if(!ok(ctx)){await ctx.answerCallbackQuery({text:'⛔ دسترسی غیرمجاز',show_alert:true});return;}const a=ctx.callbackQuery.data;
  if(a==='admin:home'){await ctx.editMessageText('⚙️ پنل مدیریت',{reply_markup:home()});await ctx.answerCallbackQuery();return;} if(a==='admin:close'){await ctx.editMessageText('✅ پنل بسته شد.');await ctx.answerCallbackQuery();return;}
+ if(a==='admin:broadcast'){
+   ctx.session.pendingBroadcast={target:'SELECTED',selectedUserIds:[]};
+   await ctx.editMessageText('📣 <b>ارسال پیام همگانی</b>\n\nمی‌توانید پیام را برای همه کاربران ارسال کنید یا ابتدا کاربران موردنظر را انتخاب کنید.',{parse_mode:'HTML',reply_markup:broadcastMenu(0)});
+   await ctx.answerCallbackQuery();return;
+ }
+ if(a==='admin:broadcast:all'){
+   ctx.session.pendingBroadcast={target:'ALL',selectedUserIds:[]};
+   ctx.session.step='ADMIN_BROADCAST_MESSAGE';
+   await ctx.editMessageText('📢 <b>ارسال به همه کاربران</b>\n\nمتن پیام را ارسال کنید.\n\n⚠️ پیام به تمام کاربرانی که در دیتابیس ثبت شده‌اند ارسال می‌شود.',{parse_mode:'HTML',reply_markup:back('admin:broadcast')});
+   await ctx.answerCallbackQuery();return;
+ }
+ if(a==='admin:broadcast:selected'){
+   const selected=ctx.session.pendingBroadcast?.selectedUserIds||[];
+   ctx.session.pendingBroadcast={target:'SELECTED',selectedUserIds:selected};
+   const list=await broadcastUsers(ctx.session.pendingBroadcast.searchQuery);
+   await ctx.editMessageText(`👥 <b>انتخاب گیرندگان</b>\n\n☑️ انتخاب‌شده: ${selected.length}\nکاربران موردنظر را انتخاب کنید:`,{parse_mode:'HTML',reply_markup:broadcastSelectedKeyboard(list,selected)});
+   await ctx.answerCallbackQuery();return;
+ }
+ if(a==='admin:broadcast:search'){
+   ctx.session.step='ADMIN_BROADCAST_SEARCH_USER';
+   await ctx.reply('🔎 شناسه، username یا نام کاربری که می‌خواهید اضافه/حذف کنید را ارسال کنید:');
+   await ctx.answerCallbackQuery();return;
+ }
+ if(a.startsWith('admin:broadcast:toggle:')){
+   const id=BigInt(a.slice('admin:broadcast:toggle:'.length));
+   const b=ctx.session.pendingBroadcast || {target:'SELECTED' as const,selectedUserIds:[]};
+   const ids=b.selectedUserIds||[];
+   const exists=ids.some(x=>x===id);
+   b.selectedUserIds=exists?ids.filter(x=>x!==id):[...ids,id];
+   b.target='SELECTED';
+   ctx.session.pendingBroadcast=b;
+   const list=await broadcastUsers(b.searchQuery);
+   await ctx.editMessageText(`👥 <b>انتخاب گیرندگان</b>\n\n☑️ انتخاب‌شده: ${b.selectedUserIds.length}\nکاربران موردنظر را انتخاب کنید:`,{parse_mode:'HTML',reply_markup:broadcastSelectedKeyboard(list,b.selectedUserIds)});
+   await ctx.answerCallbackQuery({text:exists?'کاربر حذف شد.':'کاربر انتخاب شد.'});return;
+ }
+ if(a==='admin:broadcast:compose'){
+   const b=ctx.session.pendingBroadcast;
+   if(!b || b.target!=='SELECTED' || b.selectedUserIds.length===0){await ctx.answerCallbackQuery({text:'حداقل یک کاربر انتخاب کنید.',show_alert:true});return;}
+   ctx.session.step='ADMIN_BROADCAST_MESSAGE';
+   await ctx.editMessageText(`📨 <b>متن پیام</b>\n\nپیام شما برای <b>${b.selectedUserIds.length}</b> کاربر انتخاب‌شده ارسال خواهد شد.\n\nمتن پیام را ارسال کنید:`,{parse_mode:'HTML',reply_markup:back('admin:broadcast:selected')});
+   await ctx.answerCallbackQuery();return;
+ }
+
  if(a==='admin:stats'){const [u,c,r,p,s,b,x]=await Promise.all([prisma.user.count(),prisma.course.count({where:{isActive:true}}),prisma.courseResource.count(),prisma.suggestion.count({where:{status:'PENDING'}}),prisma.user.count({where:{role:'SUPERVISOR'}}),prisma.user.count({where:{isBanned:true}}),prisma.user.count({where:{isRestricted:true}})]);await ctx.editMessageText(`📊 آمار\n\n👥 کاربران: ${u}\n📚 دروس: ${c}\n🔗 منابع: ${r}\n📝 پیشنهادهای در انتظار: ${p}\n🛡 ناظران: ${s}\n🚫 بن: ${b}\n⛔ محدود: ${x}`,{reply_markup:back()});await ctx.answerCallbackQuery();return;}
  if(a==='admin:semester_delete'){const semesters=await CourseService.getSemestersWithResources();ctx.session.pendingSemesterDeletion=undefined;ctx.session.pendingSemesterDeletionOptions=semesters;const kb=new InlineKeyboard();semesters.slice(0,40).forEach((x,i)=>kb.text(`📅 ${x.semester} — ${x.count} لینک`,`admin:semester_delete_select:${i}`).row());kb.text('🔙 بازگشت','admin:home');const extra=semesters.length>40?'\n\n⚠️ فقط ۴۰ نیم‌سال اول نمایش داده شده است.':' ';await ctx.editMessageText(semesters.length?`🗑 حذف کامل لینک‌های یک نیم‌سال\n\n⚠️ این عملیات پس از تأیید نهایی برگشت‌پذیر نیست.\nنیم‌سال موردنظر را انتخاب کنید:${extra}`:'🔗 هیچ لینکی با نیم‌سال ثبت‌شده‌ای وجود ندارد.',{reply_markup:kb});await ctx.answerCallbackQuery();return;}
  if(a.startsWith('admin:semester_delete_select:')){const index=Number(a.slice('admin:semester_delete_select:'.length));const options=ctx.session.pendingSemesterDeletionOptions||[];const selected=options[index];if(!selected){await ctx.answerCallbackQuery({text:'این گزینه دیگر معتبر نیست. دوباره فهرست نیم‌سال‌ها را باز کنید.',show_alert:true});return;}const current=await CourseService.getSemestersWithResources();const fresh=current.find(x=>x.normalizedSemester===selected.normalizedSemester);if(!fresh){ctx.session.pendingSemesterDeletion=undefined;await ctx.answerCallbackQuery({text:'این نیم‌سال دیگر لینکی ندارد.',show_alert:true});return;}ctx.session.pendingSemesterDeletion=fresh;const kb=new InlineKeyboard().text('⚠️ بله، حذف برگشت‌ناپذیر','admin:semester_delete_confirm').row().text('❌ لغو','admin:semester_delete').row().text('🔙 پنل مدیریت','admin:home');await ctx.editMessageText(`⚠️ تأیید حذف نهایی\n\n📅 نیم‌سال: ${fresh.semester}\n🔗 تعداد لینک فعلی: ${fresh.count}\n\nبا تأیید، تمام لینک‌های ثبت‌شده برای این نیم‌سال به‌طور کامل و برگشت‌ناپذیر حذف می‌شوند.\n\nآیا مطمئن هستید؟`,{reply_markup:kb});await ctx.answerCallbackQuery();return;}
@@ -40,6 +184,8 @@ adminComposer.callbackQuery(/^admin:/,async(ctx,next)=>{if(!ok(ctx)){await ctx.a
  if(a.startsWith('admin:unmoderate:')){const id=BigInt(a.split(':')[2]);await prisma.user.update({where:{id},data:{isBanned:false,bannedUntil:null,banReason:null,isRestricted:false,restrictedUntil:null,restrictionReason:null}});await ctx.editMessageText('🔓 تمام محدودیت‌ها برداشته شد.',{reply_markup:back('admin:moderation')});await ctx.answerCallbackQuery();return;}
  await next();});
 adminComposer.on('message:text',async(ctx,next):Promise<void>=>{if(!ok(ctx)){await next();return;}const t=ctx.message.text.trim();
+ if(ctx.session.step==='ADMIN_BROADCAST_SEARCH_USER'){const found=await users(t);if(!found.length){await ctx.reply('❌ کاربری پیدا نشد. دوباره جستجو کنید.');return;}const b=ctx.session.pendingBroadcast||{target:'SELECTED' as const,selectedUserIds:[]};b.target='SELECTED';b.searchQuery=t;ctx.session.pendingBroadcast=b;ctx.session.step='IDLE';await ctx.reply(`🔎 <b>نتایج جستجو</b>\n\n☑️ انتخاب‌شده: ${b.selectedUserIds.length}\nبرای انتخاب/حذف هر کاربر روی آن بزنید:`,{parse_mode:'HTML',reply_markup:broadcastSelectedKeyboard(found,b.selectedUserIds)});return;}
+ if(ctx.session.step==='ADMIN_BROADCAST_MESSAGE'){await executeBroadcast(ctx,t);return;}
  if(ctx.session.step==='ADD_COURSE_TITLE'){ctx.session.pendingCourse={title:t};ctx.session.step='ADD_COURSE_CODE';await ctx.reply('🔢 کد درس را وارد کنید؛ اگر ندارد «ندارد» بنویسید:');return;}
  if(ctx.session.step==='ADD_COURSE_CODE'){ctx.session.pendingCourse={...ctx.session.pendingCourse,code:t==='ندارد'?'':t};ctx.session.step='ADD_COURSE_INSTRUCTOR';await ctx.reply('👨‍🏫 نام استاد اولین منبع را وارد کنید:');return;}
  if(ctx.session.step==='ADD_COURSE_INSTRUCTOR'){ctx.session.pendingCourse={...ctx.session.pendingCourse,instructor:t};ctx.session.step='ADD_COURSE_SEMESTER';await ctx.reply('📅 نیم‌سال را وارد کنید:');return;}

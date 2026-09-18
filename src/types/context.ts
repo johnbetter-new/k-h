@@ -5,7 +5,8 @@ export type SessionStep =
   | 'ADD_COURSE_TITLE' | 'ADD_COURSE_CODE' | 'ADD_COURSE_INSTRUCTOR' | 'ADD_COURSE_SEMESTER' | 'ADD_COURSE_LINK' | 'ADD_COURSE_CONFIRM_DUPLICATE'
   | 'ADD_RESOURCE_LINK' | 'ADD_RESOURCE_COURSE_SEARCH' | 'ADD_RESOURCE_COURSE_SELECT' | 'ADD_RESOURCE_COURSE_CONFIRM' | 'ADD_RESOURCE_INSTRUCTOR' | 'ADD_RESOURCE_SEMESTER' | 'ADD_RESOURCE_CONFIRM' | 'ADD_RESOURCE_CONFLICT_CONFIRM'
   | 'SUGGEST_TITLE' | 'SUGGEST_COURSE_SEARCH' | 'SUGGEST_COURSE_SELECT' | 'SUGGEST_COURSE_CONFIRM' | 'SUGGEST_INSTRUCTOR' | 'SUGGEST_SEMESTER' | 'SUGGEST_LINK' | 'REJECT_REASON_WAIT'
-  | 'ADMIN_SEARCH_COURSE' | 'ADMIN_DELETE_COURSE' | 'ADMIN_CONFIRM_DELETE_COURSE' | 'ADMIN_SEARCH_USER' | 'ADMIN_ADD_SUPERVISOR' | 'ADMIN_MODERATION' | 'ADMIN_MODERATION_REASON';
+  | 'ADMIN_SEARCH_COURSE' | 'ADMIN_DELETE_COURSE' | 'ADMIN_CONFIRM_DELETE_COURSE' | 'ADMIN_SEARCH_USER' | 'ADMIN_ADD_SUPERVISOR' | 'ADMIN_MODERATION' | 'ADMIN_MODERATION_REASON'
+  | 'ADMIN_BROADCAST_SEARCH_USER' | 'ADMIN_BROADCAST_MESSAGE';
 export interface SessionData {
   step?: SessionStep;
   pendingCourse?: { title?: string; code?: string; instructor?: string; semester?: string; link?: string };
@@ -20,6 +21,7 @@ export interface SessionData {
   pendingModeration?: { userId: bigint; action: 'BAN' | 'RESTRICT'; durationMinutes?: number };
   pendingSemesterDeletion?: { normalizedSemester: string; semester: string; count: number };
   pendingSemesterDeletionOptions?: Array<{ normalizedSemester: string; semester: string; count: number }>;
+  pendingBroadcast?: { target: 'ALL' | 'SELECTED'; selectedUserIds: bigint[]; searchQuery?: string };
 }
 export interface CustomContextProps { userRole: Role; dbUser: { id: bigint; firstName: string; lastName: string | null; username: string | null; role: Role }; }
 export type CustomContext = Context & SessionFlavor<SessionData> & CustomContextProps;
