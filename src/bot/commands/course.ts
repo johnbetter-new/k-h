@@ -53,6 +53,33 @@ courseComposer.hears('➕ ثبت لینک جدید', async ctx=>{ctx.session.ste
 
 courseComposer.on('message:text',async(ctx,next):Promise<void>=>{
  const text=ctx.message.text.trim(); if(!validText(text)){await ctx.reply('❌ متن باید بین ۱ تا ۲۰۰ کاراکتر باشد.');return;}
+ if(ctx.session.step==='REQUEST_LINK_INPUT' && ctx.session.pendingLinkRequest){
+   if(!isValidUrl(text)){await ctx.reply('❌ لینک معتبر نیست. لطفاً لینک گروه/کانال را ارسال کنید.');return;}
+   const requestId=ctx.session.pendingLinkRequest.requestId;
+   const {LinkRequestService}=await import('../../services/link-request.service.js');
+   const request=await LinkRequestService.getById(requestId);
+   if(!request || request.status!=='ACTIVE'){ctx.session.step='IDLE';ctx.session.pendingLinkRequest=undefined;await ctx.reply('ℹ️ این درخواست دیگر فعال نیست.');return;}
+   const {SuggestionService}=await import('../../services/suggestion.service.js');
+   const s=await SuggestionService.createSuggestion({title:request.course.title,instructor:request.instructor,semester:request.semester,link:text,submittedById:ctx.dbUser.id,courseId:request.courseId});
+   const kb=new InlineKeyboard().text('✅ تایید و افزودن',`approve_suggestion:${s.id}`).text('❌ رد',`reject_suggestion:${s.id}`);
+   await ctx.api.sendMessage(Number(env.SUPERVISORS_GROUP_ID),`📥 <b>لینک برای یک درخواست کلاس</b>\n\n👤 ارسال‌کننده: ${submitterLabel(ctx)}\n🆔 Telegram ID: ${ctx.dbUser.id.toString()}\n📚 ${request.course.title}\n👨‍🏫 ${request.instructor}\n📅 ${request.semester}\n👥 درخواست‌کنندگان: ${request.requesters.length}\n🔗 ${text}`,{parse_mode:'HTML',reply_markup:kb});
+   ctx.session.step='IDLE';ctx.session.pendingLinkRequest=undefined;await ctx.reply('✅ لینک برای بررسی Supervisor ارسال شد. پس از تأیید، برای تمام درخواست‌کنندگان اطلاع‌رسانی می‌شود.');return;
+ }
+ if(ctx.session.step==='SEARCH_INSTRUCTOR_INPUT'){
+   const courseId=ctx.session.pendingSearchCourseId; if(!courseId){ctx.session.step='IDLE';await ctx.reply('❌ جلسه جستجو منقضی شده است. دوباره جستجو را شروع کنید.');return;}
+   const instructor={name:text,normalized:(await import('../../utils/text-normalizer.js')).normalizePersianText(text)};
+   ctx.session.pendingSearchInstructor=instructor; const semesters=await CourseService.getSemestersForSearch(courseId,instructor.normalized); ctx.session.pendingSearchSemesters=semesters; ctx.session.step='SEARCH_SEMESTER_SELECT';
+   const kb=new InlineKeyboard(); semesters.forEach((x,i)=>kb.text(`📅 ${x.semester}`,`search:semester:${i}`).row()); kb.text('✏️ نیم‌سال دیگر / درخواست لینک','search:semester_manual');
+   const c=await CourseService.getCourse(courseId); await ctx.reply(`📚 ${c?.title||''}\n👨‍🏫 ${text}\n\n📅 نیم‌سال موردنظر را انتخاب کنید:`,{reply_markup:kb}); return;
+ }
+ if(ctx.session.step==='SEARCH_SEMESTER_INPUT'){
+   const courseId=ctx.session.pendingSearchCourseId; const instructor=ctx.session.pendingSearchInstructor; if(!courseId||!instructor){ctx.session.step='IDLE';await ctx.reply('❌ جلسه جستجو منقضی شده است.');return;}
+   const semester={semester:text,normalizedSemester:(await import('../../utils/text-normalizer.js')).normalizePersianText(text)};
+   const resources=await CourseService.getResourcesForSearch(courseId,instructor.normalized,semester.normalizedSemester);
+   const c=await CourseService.getCourse(courseId); ctx.session.step='IDLE'; ctx.session.pendingSearchCourseId=undefined;ctx.session.pendingSearchInstructors=undefined;ctx.session.pendingSearchInstructor=undefined;ctx.session.pendingSearchSemesters=undefined;
+   if(!resources.length){ctx.session.pendingLinkRequestDraft={courseId,instructor,semester};await ctx.reply(`📚 ${c?.title||''}\n👨‍🏫 ${instructor.name}\n📅 ${semester.semester}\n\n❌ هنوز لینکی برای این کلاس ثبت نشده است.\n\nمی‌توانید درخواست کنید تا اگر دانشجوی دیگری لینک این کلاس را دارد، آن را ارسال کند.`,{reply_markup:new InlineKeyboard().text('🔔 درخواست لینک این کلاس','search:request_link')});return;}
+   const kb=new InlineKeyboard();resources.slice(0,15).forEach((r,i)=>kb.url(`🔗 لینک ${i+1}`,r.link).row());await ctx.reply(`📚 ${c?.title||''}\n👨‍🏫 ${instructor.name}\n📅 ${semester.semester}\n\n🔗 لینک موردنظر را انتخاب کنید:`,{reply_markup:kb});return;
+ }
  if(ctx.session.step==='SEARCH_COURSE'){
    const r=await CourseService.resolveCourse(text); ctx.session.pendingCourseCandidates=r.candidates.map(c=>c.id);
    if(r.kind==='NONE'){ctx.session.step='IDLE';await ctx.reply('❌ درسی با این نام پیدا نشد.');return;}

@@ -16,7 +16,7 @@ const base = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   BOT_TOKEN: z.string().min(1), DATABASE_URL: z.string().url(),
   WEBHOOK_DOMAIN: z.string().url().optional(), WEBHOOK_SECRET: z.string().min(16).optional(),
-  INITIAL_ADMIN_IDS: bigintList, SUPERVISORS_GROUP_ID: z.coerce.bigint(), ADMIN_ONLY_GROUP_ID: z.coerce.bigint(),
+  INITIAL_ADMIN_IDS: bigintList, SUPERVISORS_GROUP_ID: z.coerce.bigint(), ADMIN_ONLY_GROUP_ID: z.coerce.bigint(), LINK_REQUEST_CHANNEL_ID: z.coerce.bigint().optional(),
 });
 const envSchema = base.superRefine((v, ctx) => { if (v.WEBHOOK_DOMAIN && !v.WEBHOOK_SECRET) ctx.addIssue({code:z.ZodIssueCode.custom,path:['WEBHOOK_SECRET'],message:'WEBHOOK_SECRET is required when WEBHOOK_DOMAIN is set'}); });
 export type Env = z.infer<typeof envSchema>;

@@ -36,3 +36,25 @@ npm start
 ```
 
 Never commit `.env` or real bot/database credentials.
+
+## 🔔 Class Link Requests
+
+The bot supports a crowdsourced class-link request flow.
+
+### Environment
+
+Add the Telegram channel ID used for public link requests:
+
+```env
+LINK_REQUEST_CHANNEL_ID=-1001234567890
+```
+
+The bot publishes each new class request to that channel. The channel button opens the bot in private chat with a request-specific `/start` payload. The user sends the link privately, and the link is sent to the supervisors for approval before it becomes a searchable `CourseResource`.
+
+### Rules
+
+- Each user may have at most **5 active link requests**.
+- Multiple students requesting the same course + instructor + semester share one request.
+- Requesters are not exposed to people submitting links; only the requester count is shown in the channel.
+- Once a submitted link is approved, all active requesters are notified and the request is marked fulfilled.
+- If an admin deletes an entire semester, both its resources and all link requests for that semester are permanently deleted.

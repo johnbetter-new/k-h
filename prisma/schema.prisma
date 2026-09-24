@@ -19,6 +19,12 @@ enum SuggestionStatus {
   REJECTED
 }
 
+enum LinkRequestStatus {
+  ACTIVE
+  FULFILLED
+  CANCELLED
+}
+
 model User {
   id BigInt @id
   username String?
@@ -38,6 +44,7 @@ model User {
   suggestions Suggestion[] @relation("UserSuggestions")
   reviewedSuggestions Suggestion[] @relation("SupervisorReviews")
   botSessions BotSession[]
+  linkRequestUsers LinkRequestUser[]
 
   @@map("users")
 }
@@ -57,6 +64,7 @@ model Course {
   aliases CourseAlias[]
   resources CourseResource[]
   suggestions Suggestion[]
+  linkRequests LinkRequest[]
   @@index([normalizedTitle])
   @@index([normalizedCode])
   @@index([isActive])
@@ -120,6 +128,38 @@ model Suggestion {
   @@index([status])
   @@index([normalizedTitle])
   @@map("suggestions")
+}
+
+model LinkRequest {
+  id String @id @default(uuid())
+  courseId String
+  normalizedInstructor String
+  instructor String
+  normalizedSemester String
+  semester String
+  status LinkRequestStatus @default(ACTIVE)
+  channelMessageId Int?
+  createdAt DateTime @default(now())
+  fulfilledAt DateTime?
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  requesters LinkRequestUser[]
+  @@index([courseId, normalizedInstructor, normalizedSemester])
+  @@index([status])
+  @@index([normalizedSemester])
+  @@map("link_requests")
+}
+
+model LinkRequestUser {
+  id String @id @default(uuid())
+  requestId String
+  userId BigInt
+  createdAt DateTime @default(now())
+  notifiedAt DateTime?
+  request LinkRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([requestId, userId])
+  @@index([userId])
+  @@map("link_request_users")
 }
 
 model BotSession {

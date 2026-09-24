@@ -92,14 +92,14 @@ export class CourseService {
     const link = input.link.trim(); const ni = input.instructor ? normalizePersianText(input.instructor) : ''; const ns = input.semester ? normalizePersianText(input.semester) : '';
     return prisma.courseResource.findFirst({ where: { courseId: input.courseId, link, ...(ni ? { normalizedInstructor: ni } : {}), ...(ns ? { normalizedSemester: ns } : {}) } });
   }
-  static async getSemestersWithResources(): Promise<Array<{ semester: string; normalizedSemester: string; count: number }>> {
+  static async getSemestersWithResources(): Promise<Array<{ semester: string; normalizedSemester: string; count: number; requestCount: number }>> {
     const groups = await prisma.courseResource.groupBy({
       by: ['normalizedSemester'],
       where: { normalizedSemester: { not: null } },
       _count: { _all: true },
       orderBy: { normalizedSemester: 'asc' }
     });
-    const result: Array<{ semester: string; normalizedSemester: string; count: number }> = [];
+    const result: Array<{ semester: string; normalizedSemester: string; count: number; requestCount: number }> = [];
     for (const group of groups) {
       if (!group.normalizedSemester) continue;
       const sample = await prisma.courseResource.findFirst({
@@ -107,14 +107,18 @@ export class CourseService {
         select: { semester: true }
       });
       if (!sample?.semester) continue;
-      result.push({ semester: sample.semester, normalizedSemester: group.normalizedSemester, count: group._count._all });
+      const requestCount = await prisma.linkRequest.count({ where: { normalizedSemester: group.normalizedSemester } });
+      result.push({ semester: sample.semester, normalizedSemester: group.normalizedSemester, count: group._count._all, requestCount });
     }
     return result;
   }
 
-  static async deleteResourcesBySemester(normalizedSemester: string): Promise<number> {
-    const result = await prisma.courseResource.deleteMany({ where: { normalizedSemester } });
-    return result.count;
+  static async deleteResourcesBySemester(normalizedSemester: string): Promise<{ resources: number; requests: number }> {
+    return prisma.$transaction(async tx => {
+      const requests = await tx.linkRequest.deleteMany({ where: { normalizedSemester } });
+      const resources = await tx.courseResource.deleteMany({ where: { normalizedSemester } });
+      return { resources: resources.count, requests: requests.count };
+    });
   }
   static async getLatestCourses(limit=10) { return prisma.course.findMany({ where: { isActive: true }, take: limit, orderBy: { createdAt: 'desc' }, include: { resources: { take: 1, orderBy: { createdAt: 'desc' } } } }); }
   static async getCourse(id: string) { return prisma.course.findUnique({ where: { id }, include: { aliases: true, resources: { orderBy: { createdAt: 'desc' } } } }); }

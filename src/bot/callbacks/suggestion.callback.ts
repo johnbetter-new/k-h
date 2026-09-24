@@ -2,6 +2,9 @@ import { Composer } from 'grammy';
 import { CustomContext } from '../../types/context.js';
 import { SuggestionService } from '../../services/suggestion.service.js';
 import { isSupervisorOrAdmin } from '../../auth/roles.js';
+import { LinkRequestService } from '../../services/link-request.service.js';
+import { env } from '../../config/env.js';
+import { prisma } from '../../database/prisma.js';
 
 export const suggestionCallbackComposer = new Composer<CustomContext>();
 
@@ -35,13 +38,38 @@ suggestionCallbackComposer.callbackQuery(/^approve_suggestion:(.+)$/, async (ctx
 
     await ctx.editMessageText(resultMsg, { parse_mode: 'Markdown' });
 
-    // Notify original Submitter
     await ctx.api.sendMessage(
       Number(updatedSuggestion.submittedById),
-      `🎉 **پیشنهاد شما تایید شد!**\n\nدرس **${updatedSuggestion.title}** توسط ناظران تایید شد و به سیستم اضافه گردید.`
-    );
+      `🎉 <b>لینک شما تایید شد!</b>\n\n📚 ${updatedSuggestion.title}\n👨‍🏫 ${updatedSuggestion.instructor || 'ندارد'}\n📅 ${updatedSuggestion.semester}\n\nلینک با موفقیت در سامانه ثبت شد.`,
+      { parse_mode: 'HTML' }
+    ).catch(() => {});
 
-    await ctx.answerCallbackQuery({ text: 'تایید شد' });
+    const fulfilled = await LinkRequestService.fulfillForResource({
+      courseId: updatedSuggestion.courseId!,
+      instructor: updatedSuggestion.instructor,
+      semester: updatedSuggestion.semester
+    });
+
+    if (fulfilled) {
+      for (const requester of fulfilled.requesters) {
+        await ctx.api.sendMessage(
+          Number(requester.userId),
+          `🎉 <b>لینک کلاس موردنظر شما پیدا شد!</b>\n\n📚 ${fulfilled.course.title}\n👨‍🏫 ${fulfilled.instructor}\n📅 ${fulfilled.semester}\n\n🔗 ${updatedSuggestion.link}`,
+          { parse_mode: 'HTML' }
+        ).catch(() => {});
+        await prisma.linkRequestUser.updateMany({where:{requestId:fulfilled.id,userId:requester.userId},data:{notifiedAt:new Date()}});
+      }
+      if (env.LINK_REQUEST_CHANNEL_ID && fulfilled.channelMessageId) {
+        await ctx.api.editMessageText(
+          Number(env.LINK_REQUEST_CHANNEL_ID),
+          fulfilled.channelMessageId,
+          `✅ <b>لینک این کلاس پیدا شد</b>\n\n📚 ${fulfilled.course.title}\n👨‍🏫 ${fulfilled.instructor}\n📅 ${fulfilled.semester}\n\n🔗 لینک پس از بررسی Supervisor ثبت شد.`,
+          { parse_mode: 'HTML' }
+        ).catch(() => {});
+      }
+    }
+
+    await ctx.answerCallbackQuery({ text: fulfilled ? 'تایید شد و درخواست‌ها اطلاع‌رسانی شدند.' : 'تایید شد' });
   } catch (err: any) {
     await ctx.answerCallbackQuery({ text: err.message || 'خطا در تایید پیشنهاد', show_alert: true });
     return;
