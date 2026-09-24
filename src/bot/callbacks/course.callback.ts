@@ -17,7 +17,7 @@ async function publishOrUpdateRequest(requestId:string, api:any) {
   const request=await LinkRequestService.getById(requestId);
   if(!request) return;
   const count=request.requesters.length;
-  const me=await api.api.getMe(); const kb=new InlineKeyboard().url('🔗 ارسال لینک این کلاس',`https://t.me/${me.username}?start=req_${request.id}`);
+  const me=await api.getMe(); const kb=new InlineKeyboard().url('🔗 ارسال لینک این کلاس',`https://t.me/${me.username}?start=req_${request.id}`);
   const text=`🔔 <b>درخواست لینک کلاس</b>\n\n📚 ${request.course.title}\n👨‍🏫 ${request.instructor || 'استاد ثبت نشده'}\n📅 ${request.semester}\n\n👥 تعداد درخواست‌کنندگان: <b>${count}</b> نفر\n\nاگر لینک این کلاس را دارید، می‌توانید آن را ارسال کنید.`;
   if(request.channelMessageId){
     try{await api.editMessageText(Number(env.LINK_REQUEST_CHANNEL_ID),request.channelMessageId,text,{parse_mode:'HTML',reply_markup:kb});return;}catch{}
